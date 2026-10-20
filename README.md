@@ -10,35 +10,6 @@ The ER diagram below reflects the keys and columns in `sql/schma.sql`:
 erDiagram
     customers ||--o{ orders : places
     orders ||--o{ order_items : contains
-
-    customers {
-        uuid customer_id PK
-        uuid customer_unique_id
-        varchar customer_zip_code_prefix
-        text customer_city
-        varchar customer_state
-    }
-
-    orders {
-        uuid order_id PK
-        uuid customer_id FK
-        varchar order_status
-        timestamp order_purchase_timestamp
-        timestamp order_approved_at
-        timestamp order_delivered_carrier_date
-        timestamp order_delivered_customer_date
-        timestamp order_estimated_delivery_date
-    }
-
-    order_items {
-        uuid order_id PK, FK
-        int order_item_id PK
-        uuid product_id
-        uuid seller_id
-        timestamp shipping_limit_date
-        decimal price
-        decimal freight_value
-    }
 ```
 
 ## Project layout
