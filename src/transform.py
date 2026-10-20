@@ -4,16 +4,24 @@ from src.Configuration import DatasetConfig, get_dataset_config
 
 
 def _prepare_data(df: pd.DataFrame, config: DatasetConfig) -> pd.DataFrame:
+
+    #1. เช็คว่ามีคอลัมน์ ที่ set required_columns ว่าครบหรือไม่
     missing = set(config.required_columns) - set(df.columns)
     if missing:
         raise ValueError(f"Missing columns: {sorted(missing)}")
+    
+    #2. ตรวจสอบว่ามีคอลัมน์ reserved อยู่แล้วหรือไม่
     conflicts = config.reserved_columns & set(df.columns)
     if conflicts:
         raise ValueError(f"Reserved columns already exist: {sorted(conflicts)}")
 
+    #3. copy ข้อมูล และ reset index 
     result = df.copy().reset_index(drop=True)
+    
+    #4. cleaning id_columns และ text_columns เป็น string และ strip whitespace
     for column in config.id_columns + config.text_columns:
         result[column] = result[column].astype("string").str.strip()
+
     return result
 
 
@@ -21,10 +29,15 @@ def _convert_values(
     result: pd.DataFrame,
     config: DatasetConfig,
 ) -> tuple[pd.DataFrame, dict[str, pd.Series]]:
+
+    #1. get ค่า date_columns และ numeric_columns และ copy ข้อมูลไปเก็บไว้ใน raw_values
     columns = config.date_columns + config.numeric_columns
     raw_values = result.loc[:, list(columns)].copy()
+
+    #2. สร้าง dictionary present เพื่อเก็บข้อมูลว่า column นั้นมีค่าหรือไม่
     present = {}
     for column in columns:
+        #3. convert ค่าใน column เป็น string และ strip whitespace check ว่ามีค่าหรือไม่ ถ้ามีค่าก็ convert เป็น datetime หรือ numeric ตาม column type
         text = raw_values[column].astype("string").str.strip()
         present[column] = text.fillna("").ne("")
         values = text.where(present[column])
@@ -32,6 +45,7 @@ def _convert_values(
             pd.to_datetime if column in config.date_columns else pd.to_numeric
         )
         result[column] = converter(values, errors="coerce")
+
     return raw_values, present
 
 
@@ -40,12 +54,15 @@ def _orders_rules(
     present: dict[str, pd.Series],
     config: DatasetConfig,
 ) -> dict[str, pd.Series]:
+    
     # Delivery date is optional. Preserve the existing reason names/order.
     result["order_status"] = (
         result["order_status"].astype("string").str.strip().str.lower()
     )
+    
     purchase = "order_purchase_timestamp"
     delivery = "order_delivered_customer_date"
+
     return {
         "missing_order_id": result["order_id"].fillna("").eq(""),
         "missing_customer_id": result["customer_id"].fillna("").eq(""),
@@ -65,9 +82,11 @@ def _required_field_rules(
         f"missing_{column}": result[column].fillna("").eq("")
         for column in config.id_columns + config.text_columns
     }
+
     for column in config.date_columns + config.numeric_columns:
         rules[f"missing_{column}"] = ~present[column]
         rules[f"invalid_{column}"] = present[column] & result[column].isna()
+
     return rules
 
 
@@ -77,19 +96,24 @@ def _split_records(
     rules: dict[str, pd.Series],
     original_index: pd.Index,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    
     reasons = pd.Series("", index=result.index, dtype="string")
+
     for reason, mask in rules.items():
         reasons.loc[mask] = reasons.loc[mask] + reason + ";"
+
     reasons = reasons.str.rstrip(";")
     invalid = reasons.ne("")
     clean_df = result.loc[~invalid].copy()
     rejected_df = result.loc[invalid].copy()
     rejected_df["rejection_reason"] = reasons.loc[invalid]
+
     for column in raw_values.columns:
         rejected_df[f"raw_{column}"] = raw_values.loc[invalid, column]
 
     clean_df.index = original_index[~invalid.to_numpy(dtype=bool)]
     rejected_df.index = original_index[invalid.to_numpy(dtype=bool)]
+
     return clean_df, rejected_df
 
 
@@ -97,15 +121,19 @@ def _transform_dataset(
     df: pd.DataFrame,
     dataset_name: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    
     config = get_dataset_config(dataset_name)
     result = _prepare_data(df, config)
     raw_values, present = _convert_values(result, config)
     rule_builder = _orders_rules if dataset_name == "orders" else _required_field_rules
     rules = rule_builder(result, present, config)
-
     key_present = pd.Series(True, index=result.index)
+
+    # ตรวจสอบว่ามีค่าใน key_columns ครบหรือไม่ และ เช็คว่ามีค่าใน key_columns ครบหรือไม่
     for column in config.key_columns:
         key_present &= result[column].fillna("").ne("")
+
+    # ตรวจสอบ duplicate key และเพิ่ม rejection reason
     rules[config.duplicate_reason] = (
         key_present
         & result.duplicated(subset=list(config.key_columns), keep=False)

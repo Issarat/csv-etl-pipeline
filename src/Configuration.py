@@ -56,12 +56,12 @@ _DATASET_CONFIGS = {
     "customers": DatasetConfig(
         required_columns=('customer_id', 'customer_unique_id', 'customer_zip_code_prefix', 'customer_city', 'customer_state'),
         id_columns=('customer_id', 'customer_unique_id'),
-        text_columns=('customer_city', 'customer_state'),
+        text_columns=('customer_city', 'customer_state','customer_zip_code_prefix'),
         date_columns=(),
-        numeric_columns=('customer_zip_code_prefix',),
+        numeric_columns=(),
         key_columns=('customer_id',),
         duplicate_reason='duplicate_customer_id',
-        reserved_columns=frozenset(('raw_customer_zip_code_prefix', 'rejection_reason')),
+        reserved_columns=frozenset({'rejection_reason'}),
     ),
 }
 
