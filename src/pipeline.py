@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 from src.logger import get_logger
-from src.Configuration import get_dataset_paths
+from src.Configuration import get_dataset_config, get_dataset_paths
 from src.extract import extract_csv
 from src.transform import (
     transform_orders,
@@ -35,7 +35,12 @@ def run_dataset(dataset: str) -> None:
     try:
         logger.info("Start pipeline: %s", dataset)
         paths = get_dataset_paths(dataset)
-        df = extract_csv(str(paths["raw"]))
+        config = get_dataset_config(dataset)
+        text_columns = config.id_columns + config.text_columns
+        df = extract_csv(
+            str(paths["raw"]),
+            dtype={column: "string" for column in text_columns},
+        )
         clean_df, rejected_df = TRANSFORMERS[dataset](df)
 
         input_count = len(df)
