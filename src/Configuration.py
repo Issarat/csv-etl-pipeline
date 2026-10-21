@@ -95,13 +95,13 @@ _DATASET_CONFIGS = {
     ),
     "order_items": DatasetConfig(
         required_columns=('order_id', 'order_item_id', 'product_id', 'seller_id', 'shipping_limit_date', 'price', 'freight_value'),
-        id_columns=('order_id', 'order_item_id', 'product_id', 'seller_id'),
+        id_columns=('order_id', 'product_id', 'seller_id'),
         text_columns=(),
         date_columns=('shipping_limit_date',),
-        numeric_columns=('price', 'freight_value'),
+        numeric_columns=('order_item_id', 'price', 'freight_value'),
         key_columns=('order_id', 'order_item_id'),
         duplicate_reason='duplicate_order_item_key',
-        reserved_columns=frozenset(('raw_freight_value', 'raw_price', 'raw_shipping_limit_date', 'rejection_reason')),
+        reserved_columns=frozenset(('raw_order_item_id', 'raw_order_id', 'raw_product_id', 'raw_seller_id', 'raw_freight_value', 'raw_price', 'raw_shipping_limit_date', 'rejection_reason')),
     ),
     "customers": DatasetConfig(
         required_columns=('customer_id', 'customer_unique_id', 'customer_zip_code_prefix', 'customer_city', 'customer_state'),

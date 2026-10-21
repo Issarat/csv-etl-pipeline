@@ -23,6 +23,15 @@ build/
 dist/
 *.egg-info/
 
+# Generated pipeline output
+/data/clean/
+/data/rejected/
+/data/validate/
+/logs/
+
+# Local editor settings
+/.obsidian/
+
 # Logs and operating system files
 *.log
 .DS_Store

@@ -129,6 +129,25 @@ def _transform_dataset(
     raw_values, present = _convert_values(result, config)
     rule_builder = _orders_rules if dataset_name == "orders" else _required_field_rules
     rules = rule_builder(result, present, config)
+    if dataset_name == "order_items":
+        for column in config.id_columns:
+            raw_values[column] = result[column].copy()
+            normalized = []
+            for value in result[column]:
+                try:
+                    normalized.append(str(UUID(value)))
+                except (ValueError, TypeError, AttributeError):
+                    normalized.append(pd.NA)
+            normalized = pd.Series(normalized, index=result.index, dtype="string")
+            rules[f"invalid_{column}"] = result[column].fillna("").ne("") & normalized.isna()
+            result[column] = normalized
+        for column, minimum in (("order_item_id", 1), ("price", 0), ("freight_value", 0)):
+            invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
+            if column == "order_item_id":
+                invalid |= result[column].notna() & (
+                    result[column].mod(1).ne(0) | result[column].gt(2147483647)
+                )
+            rules[f"invalid_{column}"] |= present[column] & invalid
     if dataset_name == "order_reviews":
         rules["invalid_review_score"] |= present["review_score"] & ~result["review_score"].isin([1, 2, 3, 4, 5])
     if dataset_name == "order_payments":
@@ -143,7 +162,7 @@ def _transform_dataset(
 
     # ตรวจสอบว่ามีค่าใน key_columns ครบหรือไม่ และ เช็คว่ามีค่าใน key_columns ครบหรือไม่
     for column in config.key_columns:
-        key_present &= result[column].fillna("").ne("")
+        key_present &= result[column].astype("string").fillna("").ne("")
 
     # ตรวจสอบ duplicate key และเพิ่ม rejection reason
     if config.key_columns:
@@ -160,8 +179,10 @@ def transform_orders(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def transform_order_items(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Reject all occurrences of duplicate (order_id, order_item_id) keys."""
-    return _transform_dataset(df, "order_items")
+    """Validate UUID references, positive integer item IDs, and nonnegative amounts."""
+    clean, rejected = _transform_dataset(df, "order_items")
+    clean["order_item_id"] = clean["order_item_id"].astype("int64")
+    return clean, rejected
 
 
 def transform_customers(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
