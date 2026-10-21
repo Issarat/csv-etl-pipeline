@@ -67,6 +67,18 @@ CREATE TABLE IF NOT EXISTS orders (
     order_estimated_delivery_date TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS order_payments (
+    order_payments_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id UUID NOT NULL REFERENCES orders (order_id),
+    payment_sequential INTEGER NOT NULL CHECK (payment_sequential > 0),
+    payment_type VARCHAR(20) NOT NULL CHECK (
+        payment_type IN ('credit_card', 'boleto', 'voucher', 'debit_card', 'not_defined')
+    ),
+    payment_installments INTEGER NOT NULL CHECK (payment_installments >= 0),
+    payment_value NUMERIC(12, 2) NOT NULL CHECK (payment_value >= 0),
+    UNIQUE (order_id, payment_sequential)
+);
+
 CREATE TABLE IF NOT EXISTS order_items (
     order_id UUID NOT NULL REFERENCES orders (order_id),
     order_item_id INTEGER NOT NULL CHECK (order_item_id > 0),

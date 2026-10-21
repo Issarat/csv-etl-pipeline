@@ -14,6 +14,7 @@ from src.transform import (
     transform_product_categories,
     transform_geolocation,
     transform_sellers,
+    transform_order_payments,
 )
 from src.load import create_table, upsert_dataframe
 
@@ -26,9 +27,10 @@ TRANSFORMERS = {
     "product_categories": transform_product_categories,
     "geolocation": transform_geolocation,
     "sellers": transform_sellers,
+    "order_payments": transform_order_payments,
 }
 
-DATA_LIST = ("customers", "sellers", "orders", "order_items")
+DATA_LIST = ("customers", "sellers", "orders", "order_payments", "order_items")
 VALIDATE_LIST = ("product_categories", "products", "geolocation")
 
 def _export_csv(df: pd.DataFrame, file_path: Path) -> None:

@@ -28,9 +28,20 @@ class DatasetConfig:
     duplicate_reason: str = ""
     reserved_columns: frozenset[str] = frozenset()
     valid_statuses: frozenset[str] = frozenset()
+    valid_payment_types: frozenset[str] = frozenset()
 
 
 _DATASET_CONFIGS = {
+    "order_payments": DatasetConfig(
+        required_columns=('order_id', 'payment_sequential', 'payment_type', 'payment_installments', 'payment_value'),
+        id_columns=('order_id',),
+        text_columns=('payment_type',),
+        valid_payment_types=frozenset({'credit_card', 'boleto', 'voucher', 'debit_card', 'not_defined'}),
+        numeric_columns=('payment_sequential', 'payment_installments', 'payment_value'),
+        key_columns=('order_id', 'payment_sequential'),
+        duplicate_reason='duplicate_order_payment_key',
+        reserved_columns=frozenset({'order_payments_id', 'rejection_reason', 'raw_payment_sequential', 'raw_payment_installments', 'raw_payment_value'}),
+    ),
     "sellers": DatasetConfig(
         required_columns=('seller_id', 'seller_zip_code_prefix', 'seller_city', 'seller_state'),
         id_columns=('seller_id',),

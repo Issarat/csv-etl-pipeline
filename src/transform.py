@@ -1,3 +1,5 @@
+from uuid import NAMESPACE_URL, UUID, uuid5
+
 import pandas as pd
 
 from src.configuration import DatasetConfig, get_dataset_config
@@ -122,6 +124,14 @@ def _transform_dataset(
     raw_values, present = _convert_values(result, config)
     rule_builder = _orders_rules if dataset_name == "orders" else _required_field_rules
     rules = rule_builder(result, present, config)
+    if dataset_name == "order_payments":
+        result["payment_type"] = result["payment_type"].astype("string").str.strip().str.lower()
+        rules["invalid_payment_type"] = ~result["payment_type"].isin(config.valid_payment_types)
+        for column, minimum in (("payment_sequential", 1), ("payment_installments", 0), ("payment_value", 0)):
+            invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
+            if column != "payment_value":
+                invalid |= result[column].notna() & result[column].mod(1).ne(0)
+            rules[f"invalid_{column}"] |= present[column] & invalid
     key_present = pd.Series(True, index=result.index)
 
     # ตรวจสอบว่ามีค่าใน key_columns ครบหรือไม่ และ เช็คว่ามีค่าใน key_columns ครบหรือไม่
@@ -169,3 +179,13 @@ def transform_geolocation(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
 def transform_sellers(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Clean the four seller columns while preserving ZIP prefixes as strings."""
     return _transform_dataset(df, "sellers")
+
+
+def transform_order_payments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Clean payments and assign stable UUIDs from their natural payment keys."""
+    clean, rejected = _transform_dataset(df, "order_payments")
+    clean.insert(0, "order_payments_id", pd.array([
+        str(uuid5(NAMESPACE_URL, f"olist/order_payments/{UUID(str(order_id))}/{int(sequential)}"))
+        for order_id, sequential in zip(clean["order_id"], clean["payment_sequential"])
+    ], dtype="string"))
+    return clean, rejected
