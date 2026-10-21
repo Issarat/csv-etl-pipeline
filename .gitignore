@@ -7,6 +7,10 @@ env/
 
 # Test and coverage output
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
 .coverage
 .coverage.*
 htmlcov/
@@ -23,7 +27,14 @@ build/
 dist/
 *.egg-info/
 
+# Editor and workspace metadata
+.vscode/
+.idea/
+.obsidian/
+*.code-workspace
+
 # Logs and operating system files
+logs/
 *.log
 .DS_Store
 Thumbs.db
