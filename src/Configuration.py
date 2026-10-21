@@ -34,12 +34,12 @@ class DatasetConfig:
 
 _DATASET_CONFIGS = {
     "order_reviews": DatasetConfig(
-        required_columns=('review_id', 'order_id', 'review_score', 'review_comment_title', 'review_comment_message', 'review_creation_date', 'review_answer_timestamp'),
-        id_columns=('review_id', 'order_id'),
+        required_columns=('order_review_id', 'order_id', 'review_score', 'review_comment_title', 'review_comment_message', 'review_creation_date', 'review_answer_timestamp'),
+        id_columns=('order_review_id', 'order_id'),
         optional_text_columns=('review_comment_title', 'review_comment_message'),
         date_columns=('review_creation_date', 'review_answer_timestamp'),
         numeric_columns=('review_score',),
-        key_columns=('review_id', 'order_id'),
+        key_columns=('order_review_id', 'order_id'),
         duplicate_reason='duplicate_order_review_key',
         reserved_columns=frozenset({'rejection_reason', 'raw_review_score', 'raw_review_creation_date', 'raw_review_answer_timestamp'}),
     ),

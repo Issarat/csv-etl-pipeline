@@ -68,15 +68,28 @@ CREATE TABLE IF NOT EXISTS orders (
 );
 
 CREATE TABLE IF NOT EXISTS order_reviews (
-    review_id UUID NOT NULL,
+    order_review_id UUID NOT NULL,
     order_id UUID NOT NULL REFERENCES orders (order_id),
     review_score INTEGER NOT NULL CHECK (review_score BETWEEN 1 AND 5),
     review_comment_title TEXT,
     review_comment_message TEXT,
     review_creation_date TIMESTAMP NOT NULL,
     review_answer_timestamp TIMESTAMP NOT NULL,
-    PRIMARY KEY (review_id, order_id)
+    PRIMARY KEY (order_review_id, order_id)
 );
+
+-- Preserve existing review IDs and constraints when upgrading an existing table.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_attribute
+        WHERE attrelid = 'order_reviews'::regclass
+          AND attname = 'review_id' AND NOT attisdropped
+    ) THEN
+        ALTER TABLE order_reviews RENAME COLUMN review_id TO order_review_id;
+    END IF;
+END;
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_order_reviews_order_id ON order_reviews (order_id);
 

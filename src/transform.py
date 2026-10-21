@@ -185,6 +185,10 @@ def transform_sellers(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 def transform_order_reviews(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Clean reviews; comments are optional and scores must be integers from 1 to 5."""
+    if "review_id" in df.columns:
+        if "order_review_id" in df.columns:
+            raise ValueError("Both review_id and order_review_id are present")
+        df = df.rename(columns={"review_id": "order_review_id"})
     return _transform_dataset(df, "order_reviews")
 
 
