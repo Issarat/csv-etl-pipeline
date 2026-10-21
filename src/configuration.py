@@ -52,7 +52,7 @@ _DATASET_CONFIGS = {
         numeric_columns=('payment_sequential', 'payment_installments', 'payment_value'),
         key_columns=('order_id', 'payment_sequential'),
         duplicate_reason='duplicate_order_payment_key',
-        reserved_columns=frozenset({'order_payments_id', 'rejection_reason', 'raw_payment_sequential', 'raw_payment_installments', 'raw_payment_value'}),
+        reserved_columns=frozenset({'order_payments_id', 'raw_order_id', 'rejection_reason', 'raw_payment_sequential', 'raw_payment_installments', 'raw_payment_value'}),
     ),
     "sellers": DatasetConfig(
         required_columns=('seller_id', 'seller_zip_code_prefix', 'seller_city', 'seller_state'),

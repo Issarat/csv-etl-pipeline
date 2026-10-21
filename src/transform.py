@@ -129,7 +129,7 @@ def _transform_dataset(
     raw_values, present = _convert_values(result, config)
     rule_builder = _orders_rules if dataset_name == "orders" else _required_field_rules
     rules = rule_builder(result, present, config)
-    if dataset_name == "order_items":
+    if dataset_name in ("order_items", "order_payments"):
         for column in config.id_columns:
             raw_values[column] = result[column].copy()
             normalized = []
@@ -141,6 +141,7 @@ def _transform_dataset(
             normalized = pd.Series(normalized, index=result.index, dtype="string")
             rules[f"invalid_{column}"] = result[column].fillna("").ne("") & normalized.isna()
             result[column] = normalized
+    if dataset_name == "order_items":
         for column, minimum in (("order_item_id", 1), ("price", 0), ("freight_value", 0)):
             invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
             if column == "order_item_id":
