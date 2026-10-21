@@ -31,6 +31,14 @@ class DatasetConfig:
 
 
 _DATASET_CONFIGS = {
+    "sellers": DatasetConfig(
+        required_columns=('seller_id', 'seller_zip_code_prefix', 'seller_city', 'seller_state'),
+        id_columns=('seller_id',),
+        text_columns=('seller_zip_code_prefix', 'seller_city', 'seller_state'),
+        key_columns=('seller_id',),
+        duplicate_reason='duplicate_seller_id',
+        reserved_columns=frozenset({'rejection_reason'}),
+    ),
     "geolocation": DatasetConfig(
         required_columns=('geolocation_zip_code_prefix', 'geolocation_lat', 'geolocation_lng', 'geolocation_city', 'geolocation_state'),
         text_columns=('geolocation_zip_code_prefix', 'geolocation_city', 'geolocation_state'),

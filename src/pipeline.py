@@ -13,6 +13,7 @@ from src.transform import (
     transform_products,
     transform_product_categories,
     transform_geolocation,
+    transform_sellers,
 )
 from src.load import create_table, upsert_dataframe
 
@@ -24,9 +25,10 @@ TRANSFORMERS = {
     "products": transform_products,
     "product_categories": transform_product_categories,
     "geolocation": transform_geolocation,
+    "sellers": transform_sellers,
 }
 
-DATA_LIST = ("customers", "orders", "order_items")
+DATA_LIST = ("customers", "sellers", "orders", "order_items")
 VALIDATE_LIST = ("product_categories", "products", "geolocation")
 
 def _export_csv(df: pd.DataFrame, file_path: Path) -> None:
@@ -127,9 +129,12 @@ def main() -> None:
             create_table()
 
         # ต้องทำตามลำดับ Foreign Key
+        order_items_df = None
         for dataset in DATA_LIST:
             clean_df = _cleaning_dataset(dataset)
-            if not dev_mode:
+            if dataset == "order_items":
+                order_items_df = clean_df
+            elif not dev_mode:
                 _load_dataset(dataset, clean_df)
 
         for dataset in VALIDATE_LIST:
@@ -149,6 +154,9 @@ def main() -> None:
                     ),
                 )
                 _load_dataset(dataset, validated_df)
+
+            if order_items_df is not None:
+                _load_dataset("order_items", order_items_df)
 
         pipeline_logger.info(
             "ETL pipeline completed successfully"

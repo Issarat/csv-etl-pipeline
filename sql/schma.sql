@@ -1,6 +1,13 @@
 -- PostgreSQL schema for the clean Olist datasets.
 -- Existing 32-character hexadecimal IDs load directly into PostgreSQL UUID columns.
--- Load categories before products, and customers before orders and order_items.
+-- Load categories before products; orders, products, and sellers before order_items.
+
+CREATE TABLE IF NOT EXISTS sellers (
+    seller_id UUID PRIMARY KEY,
+    seller_zip_code_prefix VARCHAR(5) NOT NULL,
+    seller_city TEXT NOT NULL,
+    seller_state VARCHAR(2) NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS geolocation (
     geolocation_id INTEGER PRIMARY KEY,
@@ -63,8 +70,8 @@ CREATE TABLE IF NOT EXISTS orders (
 CREATE TABLE IF NOT EXISTS order_items (
     order_id UUID NOT NULL REFERENCES orders (order_id),
     order_item_id INTEGER NOT NULL CHECK (order_item_id > 0),
-    product_id UUID NOT NULL,
-    seller_id UUID NOT NULL,
+    product_id UUID NOT NULL REFERENCES products (product_id),
+    seller_id UUID NOT NULL REFERENCES sellers (seller_id),
     shipping_limit_date TIMESTAMP NOT NULL,
     price NUMERIC(12, 2) NOT NULL CHECK (price >= 0),
     freight_value NUMERIC(12, 2) NOT NULL CHECK (freight_value >= 0),
@@ -73,6 +80,31 @@ CREATE TABLE IF NOT EXISTS order_items (
 
 CREATE INDEX IF NOT EXISTS idx_orders_customer_id
     ON orders (customer_id);
+
+-- Add references to existing order_items tables as well as new installations.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'order_items'::regclass
+          AND conname = 'order_items_product_id_fkey'
+    ) THEN
+        ALTER TABLE order_items ADD CONSTRAINT order_items_product_id_fkey
+            FOREIGN KEY (product_id) REFERENCES products (product_id);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'order_items'::regclass
+          AND conname = 'order_items_seller_id_fkey'
+    ) THEN
+        ALTER TABLE order_items ADD CONSTRAINT order_items_seller_id_fkey
+            FOREIGN KEY (seller_id) REFERENCES sellers (seller_id);
+    END IF;
+END;
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items (product_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_seller_id ON order_items (seller_id);
 
 CREATE INDEX IF NOT EXISTS idx_customers_unique_id
     ON customers (customer_unique_id);

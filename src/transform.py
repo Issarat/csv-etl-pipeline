@@ -164,3 +164,8 @@ def transform_product_categories(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Dat
 def transform_geolocation(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Preserve ZIP prefixes as strings and allow multiple locations per prefix."""
     return _transform_dataset(df, "geolocation")
+
+
+def transform_sellers(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Clean the four seller columns while preserving ZIP prefixes as strings."""
+    return _transform_dataset(df, "sellers")
