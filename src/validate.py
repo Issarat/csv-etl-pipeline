@@ -1,0 +1,105 @@
+import pandas as pd
+from src.logger import get_logger
+from src.configuration import get_dataset_paths
+
+def validate_product() -> None:
+    """Build validated category and product files together, preserving existing IDs."""
+    dataset_name = "products"
+    logger = get_logger(dataset_name=dataset_name, log_type="validate")
+    logger.info("Starting validation for dataset: %s", dataset_name)
+
+    paths = get_dataset_paths(dataset_name)
+    clean_path = paths["clean"]
+    validated_path = paths["validated"]
+    category_paths = get_dataset_paths("product_categories")
+    category_path = category_paths["validated"]
+
+    if not clean_path.exists():
+        logger.error("Clean dataset file does not exist: %s", clean_path)
+        raise FileNotFoundError(f"Clean dataset file does not exist: {clean_path}")
+
+    try:
+        df = pd.read_csv(clean_path)
+        logger.info("Loaded clean dataset with %d rows and %d columns.", len(df), len(df.columns))
+
+        name_column = "product_category_name"
+        id_column = "product_category_id"
+        if category_path.exists():
+            categories = pd.read_csv(category_path)
+        else:
+            categories = pd.read_csv(category_paths["clean"])
+        names = categories[name_column].astype("string").str.strip()
+
+        if names.fillna("").eq("").any() or names.duplicated().any():
+            raise ValueError("Category mapping contains empty or duplicate names")
+        categories[name_column] = names
+
+        # Resolve either category name to the canonical name before assigning IDs.
+        aliases = pd.concat([
+            pd.DataFrame({"alias": names, "canonical": names}),
+            pd.DataFrame({
+                "alias": categories["product_category_name_english"].astype("string").str.strip(),
+                "canonical": names,
+            }),
+        ], ignore_index=True)
+
+        aliases = aliases.loc[aliases["alias"].fillna("").ne("")].drop_duplicates()
+
+        if aliases["alias"].duplicated().any():
+            raise ValueError("Category names or English names match multiple categories")
+        
+        canonical_mapping = aliases.set_index("alias")["canonical"]
+        product_names = df[name_column].astype("string").str.strip()
+        canonical_names = product_names.map(canonical_mapping).astype("string")
+        unknown = product_names.fillna("").ne("") & canonical_names.isna()
+        canonical_names = canonical_names.where(~unknown, product_names)
+        df[name_column] = canonical_names
+
+        if id_column not in categories:
+            categories.insert(0, id_column, range(1, len(categories) + 1))
+        ids = pd.to_numeric(categories[id_column], errors="raise").astype("Int64")
+
+        if ids.isna().any() or ids.duplicated().any():
+            raise ValueError("Category mapping contains null or duplicate IDs")
+        
+        mapping = pd.Series(ids.array, index=names)
+        product_ids = canonical_names.map(mapping).astype("Int64")
+
+        if unknown.any():
+            new_names = sorted(product_names[unknown].unique())
+            next_id = int(ids.max()) + 1 if not ids.empty else 1
+            new_categories = pd.DataFrame(
+                {
+                    id_column: pd.array(
+                        range(next_id, next_id + len(new_names)), dtype="Int64",
+                    ),
+                    name_column: new_names,
+                    "product_category_name_english": pd.NA,
+                }
+            )
+            categories = pd.concat([categories, new_categories], ignore_index=True)
+            mapping = pd.Series(
+                categories[id_column].astype("Int64").array,
+                index=categories[name_column].astype("string").str.strip(),
+            )
+            product_ids = canonical_names.map(mapping).astype("Int64")
+        
+        df.insert(df.columns.get_loc(name_column), id_column, product_ids)
+        df = df.drop(columns=name_column)
+
+        # Ensure the output directory exists
+        validated_path.parent.mkdir(parents=True, exist_ok=True)
+
+        category_path.parent.mkdir(parents=True, exist_ok=True)
+        categories.to_csv(category_path, index=False)
+        logger.info("Saved validated categories to: %s", category_path)
+        if unknown.any():
+            logger.info("Added %d product categories to: %s", len(new_names), category_path)
+
+        # Save a separate output without overwriting the clean dataset
+        df.to_csv(validated_path, index=False)
+        logger.info("Successfully validated dataset to: %s", validated_path)
+
+    except Exception as e:
+        logger.exception("Failed to validate dataset: %s", e) 
+        raise

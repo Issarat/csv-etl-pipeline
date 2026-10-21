@@ -1,8 +1,8 @@
 import pandas as pd
 
-from src.Configuration import DatasetConfig, get_dataset_config
+from src.configuration import DatasetConfig, get_dataset_config
 
-
+# region Data Transformation Functions
 def _prepare_data(df: pd.DataFrame, config: DatasetConfig) -> pd.DataFrame:
 
     #1. เช็คว่ามีคอลัมน์ ที่ set required_columns ว่าครบหรือไม่
@@ -23,7 +23,6 @@ def _prepare_data(df: pd.DataFrame, config: DatasetConfig) -> pd.DataFrame:
         result[column] = result[column].astype("string").str.strip()
 
     return result
-
 
 def _convert_values(
     result: pd.DataFrame,
@@ -48,7 +47,6 @@ def _convert_values(
 
     return raw_values, present
 
-
 def _orders_rules(
     result: pd.DataFrame,
     present: dict[str, pd.Series],
@@ -72,7 +70,6 @@ def _orders_rules(
         "invalid_delivery_date": present[delivery] & result[delivery].isna(),
     }
 
-
 def _required_field_rules(
     result: pd.DataFrame,
     present: dict[str, pd.Series],
@@ -88,7 +85,6 @@ def _required_field_rules(
         rules[f"invalid_{column}"] = present[column] & result[column].isna()
 
     return rules
-
 
 def _split_records(
     result: pd.DataFrame,
@@ -116,7 +112,6 @@ def _split_records(
 
     return clean_df, rejected_df
 
-
 def _transform_dataset(
     df: pd.DataFrame,
     dataset_name: str,
@@ -139,7 +134,7 @@ def _transform_dataset(
         & result.duplicated(subset=list(config.key_columns), keep=False)
     )
     return _split_records(result, raw_values, rules, df.index.copy())
-
+# endregion
 
 def transform_orders(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Normalize orders; delivery dates may be empty but must parse if given."""
@@ -154,3 +149,12 @@ def transform_order_items(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
 def transform_customers(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Reject duplicate customer_id; customer_unique_id may repeat."""
     return _transform_dataset(df, "customers")
+
+def transform_products(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Clean products using shared dataset rules; retain category names for validation."""
+    return _transform_dataset(df, "products")
+
+
+def transform_product_categories(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Clean category names before validation assigns IDs; English names may be null."""
+    return _transform_dataset(df, "product_categories")

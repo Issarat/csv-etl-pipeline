@@ -3,12 +3,15 @@ from pathlib import Path
 import pandas as pd
 
 from src.logger import get_logger
-from src.Configuration import get_dataset_config, get_dataset_paths
+from src.configuration import get_dataset_config, get_dataset_paths
 from src.extract import extract_csv
+from src.validate import validate_product
 from src.transform import (
     transform_orders,
     transform_order_items,
     transform_customers,
+    transform_products,
+    transform_product_categories,
 )
 from src.load import create_table, upsert_dataframe
 
@@ -17,9 +20,12 @@ TRANSFORMERS = {
     "orders": transform_orders,
     "order_items": transform_order_items,
     "customers": transform_customers,
+    "products": transform_products,
+    "product_categories": transform_product_categories,
 }
 
 DATA_LIST = ("customers", "orders", "order_items")
+VALIDATE_LIST = ("product_categories", "products")
 
 def _export_csv(df: pd.DataFrame, file_path: Path) -> None:
     file_path = Path(file_path)
@@ -84,7 +90,7 @@ def _cleaning_dataset(dataset: str) -> pd.DataFrame:
         raise
 
 
-def _migration_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
+def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
     """Load already cleaned records into PostgreSQL."""
     logger = get_logger(dataset_name=dataset, log_type="pipeline")
     try:
@@ -122,7 +128,20 @@ def main() -> None:
         for dataset in DATA_LIST:
             clean_df = _cleaning_dataset(dataset)
             if not dev_mode:
-                _migration_dataset(dataset, clean_df)
+                _load_dataset(dataset, clean_df)
+
+        for dataset in VALIDATE_LIST:
+            _cleaning_dataset(dataset)
+        validate_product()
+
+        if not dev_mode:
+            for dataset in VALIDATE_LIST:
+                validated_path = get_dataset_paths(dataset)["validated"]
+                validated_df = extract_csv(
+                    str(validated_path),
+                    dtype={"product_category_id": "Int64"},
+                )
+                _load_dataset(dataset, validated_df)
 
         pipeline_logger.info(
             "ETL pipeline completed successfully"

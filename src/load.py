@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from functools import lru_cache
 
 import pandas as pd
 import psycopg
@@ -12,27 +13,22 @@ from sqlalchemy import MetaData, Table
 
 from src.logger import get_logger
 
-#regein load .env
-load_dotenv()
-
-engine = create_engine(
-    os.environ["DATABASE_URL"],
-    pool_pre_ping=True,
-)
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(PROJECT_ROOT / ".env")
 
-DATABASE_URL = os.getenv("DATABASE_URL")
 
-if not DATABASE_URL:
-    raise RuntimeError("ไม่พบ DATABASE_URL ในไฟล์ .env")
+def _get_database_url() -> str:
+    load_dotenv(PROJECT_ROOT / ".env")
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError("ไม่พบ DATABASE_URL ในไฟล์ .env")
+    return database_url
 
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-)
-#endregein
+
+@lru_cache(maxsize=1)
+def _get_engine():
+    return create_engine(_get_database_url(), pool_pre_ping=True)
+
+
 def create_table() -> list[str]:
     logger = get_logger(
         dataset_name="create_table",
@@ -52,7 +48,7 @@ def create_table() -> list[str]:
         if not schema_sql.strip():
             raise ValueError("ไฟล์ schma.sql ไม่มีคำสั่ง SQL")
 
-        psycopg_url = DATABASE_URL.replace(
+        psycopg_url = _get_database_url().replace(
             "postgresql+psycopg://",
             "postgresql://",
             1,
@@ -121,7 +117,7 @@ def load_dataframe(
             return
 
         # หากโหลดไม่สำเร็จ transaction จะ rollback
-        with engine.begin() as connection:
+        with _get_engine().begin() as connection:
             df.to_sql(
                 name=table_name,
                 con=connection,
@@ -180,7 +176,7 @@ def upsert_dataframe(
                 f"{sorted(missing_columns)}"
             )
 
-        with engine.begin() as connection:
+        with _get_engine().begin() as connection:
             metadata = MetaData()
 
             table = Table(
