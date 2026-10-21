@@ -3,13 +3,24 @@ import logging
 import pandas as pd
 
 from src.logger import get_logger
-from src.Configuration import get_dataset_paths
+from src.configuration import get_dataset_paths
 from src.extract import extract_csv
 
+"""
 DATA_LIST = [
     "orders",
     "order_items",
     "customers",
+]
+"""
+
+DATA_LIST = [
+    "products",
+    "order_payments",
+    "order_reviews",
+    "product_categories",
+    "geolocation",
+    "sellers"
 ]
 
 def profile_data(

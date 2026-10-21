@@ -1,8 +1,10 @@
+from uuid import NAMESPACE_URL, UUID, uuid5
+
 import pandas as pd
 
-from src.Configuration import DatasetConfig, get_dataset_config
+from src.configuration import DatasetConfig, get_dataset_config
 
-
+# region Data Transformation Functions
 def _prepare_data(df: pd.DataFrame, config: DatasetConfig) -> pd.DataFrame:
 
     #1. เช็คว่ามีคอลัมน์ ที่ set required_columns ว่าครบหรือไม่
@@ -19,11 +21,10 @@ def _prepare_data(df: pd.DataFrame, config: DatasetConfig) -> pd.DataFrame:
     result = df.copy().reset_index(drop=True)
     
     #4. cleaning id_columns และ text_columns เป็น string และ strip whitespace
-    for column in config.id_columns + config.text_columns:
+    for column in config.id_columns + config.text_columns + config.optional_text_columns:
         result[column] = result[column].astype("string").str.strip()
 
     return result
-
 
 def _convert_values(
     result: pd.DataFrame,
@@ -48,7 +49,6 @@ def _convert_values(
 
     return raw_values, present
 
-
 def _orders_rules(
     result: pd.DataFrame,
     present: dict[str, pd.Series],
@@ -72,7 +72,6 @@ def _orders_rules(
         "invalid_delivery_date": present[delivery] & result[delivery].isna(),
     }
 
-
 def _required_field_rules(
     result: pd.DataFrame,
     present: dict[str, pd.Series],
@@ -88,7 +87,6 @@ def _required_field_rules(
         rules[f"invalid_{column}"] = present[column] & result[column].isna()
 
     return rules
-
 
 def _split_records(
     result: pd.DataFrame,
@@ -116,7 +114,6 @@ def _split_records(
 
     return clean_df, rejected_df
 
-
 def _transform_dataset(
     df: pd.DataFrame,
     dataset_name: str,
@@ -127,6 +124,16 @@ def _transform_dataset(
     raw_values, present = _convert_values(result, config)
     rule_builder = _orders_rules if dataset_name == "orders" else _required_field_rules
     rules = rule_builder(result, present, config)
+    if dataset_name == "order_reviews":
+        rules["invalid_review_score"] |= present["review_score"] & ~result["review_score"].isin([1, 2, 3, 4, 5])
+    if dataset_name == "order_payments":
+        result["payment_type"] = result["payment_type"].astype("string").str.strip().str.lower()
+        rules["invalid_payment_type"] = ~result["payment_type"].isin(config.valid_payment_types)
+        for column, minimum in (("payment_sequential", 1), ("payment_installments", 0), ("payment_value", 0)):
+            invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
+            if column != "payment_value":
+                invalid |= result[column].notna() & result[column].mod(1).ne(0)
+            rules[f"invalid_{column}"] |= present[column] & invalid
     key_present = pd.Series(True, index=result.index)
 
     # ตรวจสอบว่ามีค่าใน key_columns ครบหรือไม่ และ เช็คว่ามีค่าใน key_columns ครบหรือไม่
@@ -134,12 +141,13 @@ def _transform_dataset(
         key_present &= result[column].fillna("").ne("")
 
     # ตรวจสอบ duplicate key และเพิ่ม rejection reason
-    rules[config.duplicate_reason] = (
-        key_present
-        & result.duplicated(subset=list(config.key_columns), keep=False)
-    )
+    if config.key_columns:
+        rules[config.duplicate_reason] = (
+            key_present
+            & result.duplicated(subset=list(config.key_columns), keep=False)
+        )
     return _split_records(result, raw_values, rules, df.index.copy())
-
+# endregion
 
 def transform_orders(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Normalize orders; delivery dates may be empty but must parse if given."""
@@ -154,3 +162,41 @@ def transform_order_items(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
 def transform_customers(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Reject duplicate customer_id; customer_unique_id may repeat."""
     return _transform_dataset(df, "customers")
+
+def transform_products(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Clean products using shared dataset rules; retain category names for validation."""
+    return _transform_dataset(df, "products")
+
+
+def transform_product_categories(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Clean category names before validation assigns IDs; English names may be null."""
+    return _transform_dataset(df, "product_categories")
+
+
+def transform_geolocation(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Preserve ZIP prefixes as strings and allow multiple locations per prefix."""
+    return _transform_dataset(df, "geolocation")
+
+
+def transform_sellers(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Clean the four seller columns while preserving ZIP prefixes as strings."""
+    return _transform_dataset(df, "sellers")
+
+
+def transform_order_reviews(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Clean reviews; comments are optional and scores must be integers from 1 to 5."""
+    if "review_id" in df.columns:
+        if "order_review_id" in df.columns:
+            raise ValueError("Both review_id and order_review_id are present")
+        df = df.rename(columns={"review_id": "order_review_id"})
+    return _transform_dataset(df, "order_reviews")
+
+
+def transform_order_payments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Clean payments and assign stable UUIDs from their natural payment keys."""
+    clean, rejected = _transform_dataset(df, "order_payments")
+    clean.insert(0, "order_payments_id", pd.array([
+        str(uuid5(NAMESPACE_URL, f"olist/order_payments/{UUID(str(order_id))}/{int(sequential)}"))
+        for order_id, sequential in zip(clean["order_id"], clean["payment_sequential"])
+    ], dtype="string"))
+    return clean, rejected

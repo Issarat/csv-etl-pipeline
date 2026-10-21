@@ -113,85 +113,34 @@ For each configured dataset, the pipeline:
 Generated files use these paths:
 
 ```text
-data/clean/olist_<dataset>_clean.csv
-data/rejected/olist_<dataset>_rejected.csv
+csv-etl-pipeline/
+|-- compose.yaml
+|-- data/
+|   |-- raw/
+|   |-- clean/
+|   |-- rejected/
+|   `-- validate/
+|-- logs/
+|-- sql/schma.sql
+|-- src/
+|   |-- configuration.py   # Dataset paths and cleaning rules
+|   |-- extract.py         # CSV reading
+|   |-- transform.py       # Shared cleaning and row rejection
+|   |-- validate.py        # Product/category and geolocation validation
+|   |-- load.py            # Lazy database setup and upserts
+|   |-- pipeline.py        # Cleaning, validation, and load orchestration
+|   |-- profiling.py       # Source data profiling
+|   `-- logger.py          # File and console logging
+|-- tests/
+|-- .gitignore
+`-- requirements.txt
 ```
 
-Customer ZIP code prefixes remain strings so leading zeroes are preserved.
-
-## Upsert behavior
-
-The loader uses PostgreSQL `INSERT ... ON CONFLICT DO UPDATE`. Running the
-pipeline again updates matching rows instead of inserting duplicate primary
-keys.
-
-| Table         | Conflict key                |
-| ------------- | --------------------------- |
-| `customers`   | `customer_id`               |
-| `orders`      | `order_id`                  |
-| `order_items` | `order_id`, `order_item_id` |
-
-All non-key columns supplied by the clean DataFrame are updated when a conflict
-occurs. Each table load runs inside a database transaction, so a failed load is
-rolled back instead of being partially committed.
-
-## Troubleshooting
-
-### Foreign-key error while loading orders
-
-An error similar to the following means that `orders` was loaded before its
-referenced customer rows:
-
-```text
-insert or update on table "orders" violates foreign key constraint
-Key (customer_id)=(...) is not present in table "customers".
-```
-
-Set the pipeline order in `src/pipeline.py` to:
-
-```python
-DATA_LIST = ("customers", "orders", "order_items")
-```
-
-Then run the pipeline again. The failed table load is transactional, and the
-upsert operation makes rerunning safe for rows that were already committed.
-
-### PostgreSQL connection error
-
-Confirm that the container is healthy and that host port `5433` is published:
-
-```powershell
-docker compose ps
-docker compose exec postgres pg_isready -U etl_user -d olist
-```
-
-Confirm that `.env` uses the same host port:
-
-```env
-DATABASE_URL=postgresql+psycopg://etl_user:etl_password@localhost:5433/olist
-```
-
-If `compose.yaml` changed after the container was created, recreate the
-container without deleting the database volume:
-
-```powershell
-docker compose up -d --force-recreate postgres
-```
-
-### Python module not found
-
-Use the virtual environment's Python executable so imports and installed
-dependencies come from the same environment:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m src.pipeline
-```
-
-## Profile source data
+## Profiling, logs, and tests
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.profiling
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
 Profiling reports row counts, duplicate counts, memory usage, per-column
