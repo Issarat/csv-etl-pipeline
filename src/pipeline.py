@@ -12,44 +12,29 @@ from src.transform import (
 )
 from src.load import create_table, upsert_dataframe
 
-#regeion set up constanst
+# Dataset order follows foreign key dependencies.
 TRANSFORMERS = {
     "orders": transform_orders,
     "order_items": transform_order_items,
     "customers": transform_customers,
 }
 
-DATA_LIST = ("customers","orders", "order_items")
+DATA_LIST = ("customers", "orders", "order_items")
 
-TABLE_NAMES_MAPPING = {
-    "customers": "customers",
-    "orders": "orders",
-    "order_items": "order_items",
-}
-
-CONFLICT_COLUMNS = {
-    "customers": ("customer_id",),
-    "orders": ("order_id",),
-    "order_items": (
-        "order_id",
-        "order_item_id",
-    ),
-}
-#endregeion 
-
-def export_csv(df: pd.DataFrame, file_path: Path) -> None:
+def _export_csv(df: pd.DataFrame, file_path: Path) -> None:
     file_path = Path(file_path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(file_path, index=False)
 
 
-def run_dataset(dataset: str) -> None:
+def _cleaning_dataset(dataset: str) -> pd.DataFrame:
+    """Extract, transform, validate, and export a dataset; return clean records."""
     if dataset not in TRANSFORMERS:
         raise ValueError(f"No transformer configured for: {dataset}")
 
     logger = get_logger(dataset_name=dataset, log_type="pipeline")
     try:
-        logger.info("Start pipeline: %s", dataset)
+        logger.info("Start cleaning pipeline: %s", dataset)
         paths = get_dataset_paths(dataset)
         config = get_dataset_config(dataset)
         text_columns = config.id_columns + config.text_columns
@@ -88,30 +73,35 @@ def run_dataset(dataset: str) -> None:
             "Input: %s | Clean: %s | Rejected: %s",
             input_count, len(clean_df), len(rejected_df),
         )
-        export_csv(clean_df, paths["clean"])
-        export_csv(rejected_df, paths["rejected"])
+        for output_name, output_df in (("clean", clean_df), ("rejected", rejected_df)):
+            _export_csv(output_df, paths[output_name])
+            logger.info("Saved %s: %s", output_name, paths[output_name])
 
-        logger.info("Saved clean: %s", paths["clean"])
-        logger.info("Saved rejected: %s", paths["rejected"])
+        logger.info("Completed cleaning pipeline: %s", dataset)
+        return clean_df
+    except Exception:
+        logger.exception("Failed cleaning pipeline: %s", dataset)
+        raise
 
-        # Load เข้า PostgreSQL
-        table_name = TABLE_NAMES_MAPPING[dataset]
-        
+
+def _migration_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
+    """Load already cleaned records into PostgreSQL."""
+    logger = get_logger(dataset_name=dataset, log_type="pipeline")
+    try:
+        logger.info("Start loading dataset: %s", dataset)
+        config = get_dataset_config(dataset)
         upsert_dataframe(
             df=clean_df,
-            table_name=table_name,
-            conflict_columns=CONFLICT_COLUMNS[dataset],
+            table_name=dataset,
+            conflict_columns=config.key_columns,
         )
 
-        logger.info(
-            "Completed pipeline: %s",
-            dataset,
-        )
         logger.info("Completed pipeline: %s", dataset)
     except Exception:
         logger.exception("Failed pipeline: %s", dataset)
         raise
 
+dev_mode = True
 
 def main() -> None:
     pipeline_logger = get_logger(
@@ -125,11 +115,14 @@ def main() -> None:
         )
 
         # สร้างตารางจาก schma.sql
-        create_table()
+        if not dev_mode:
+            create_table()
 
         # ต้องทำตามลำดับ Foreign Key
         for dataset in DATA_LIST:
-            run_dataset(dataset)
+            clean_df = _cleaning_dataset(dataset)
+            if not dev_mode:
+                _migration_dataset(dataset, clean_df)
 
         pipeline_logger.info(
             "ETL pipeline completed successfully"
