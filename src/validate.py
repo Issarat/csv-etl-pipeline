@@ -50,10 +50,37 @@ def validate_product() -> None:
 
         name_column = "product_category_name"
         id_column = "product_category_id"
+        english_column = "product_category_name_english"
+        latest_categories = pd.read_csv(category_paths["clean"])
+        for column in (name_column, english_column):
+            latest_categories[column] = latest_categories[column].astype("string").str.strip()
+        latest_categories[english_column] = latest_categories[english_column].replace("", pd.NA)
+        latest_names = latest_categories[name_column]
+        if latest_names.fillna("").eq("").any() or latest_names.duplicated().any():
+            raise ValueError("Clean categories contain empty or duplicate names")
+
         if category_path.exists():
             categories = pd.read_csv(category_path)
+            for column in (name_column, english_column):
+                categories[column] = categories[column].astype("string").str.strip()
+            existing_ids = pd.to_numeric(categories[id_column], errors="raise").astype("Int64")
+            if existing_ids.isna().any() or existing_ids.duplicated().any():
+                raise ValueError("Category mapping contains null or duplicate IDs")
+            categories[id_column] = existing_ids
+            # Update translations by canonical name without changing existing IDs.
+            latest_translations = latest_categories.set_index(name_column)[english_column]
+            translations = categories[name_column].map(latest_translations)
+            categories[english_column] = translations.combine_first(categories[english_column])
+            new_categories = latest_categories.loc[
+                ~latest_names.isin(categories[name_column]), [name_column, english_column]
+            ].copy()
+            next_id = int(existing_ids.max()) + 1 if not existing_ids.empty else 1
+            new_categories.insert(0, id_column, pd.array(
+                range(next_id, next_id + len(new_categories)), dtype="Int64",
+            ))
+            categories = pd.concat([categories, new_categories], ignore_index=True)
         else:
-            categories = pd.read_csv(category_paths["clean"])
+            categories = latest_categories.loc[:, [name_column, english_column]].copy()
         names = categories[name_column].astype("string").str.strip()
 
         if names.fillna("").eq("").any() or names.duplicated().any():
