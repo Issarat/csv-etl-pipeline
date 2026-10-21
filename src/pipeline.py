@@ -17,7 +17,7 @@ from src.transform import (
     transform_order_payments,
     transform_order_reviews,
 )
-from src.load import create_table, upsert_dataframe
+from src.load import create_table, upsert_dataframe, replace_geolocation
 
 # Dataset order follows foreign key dependencies.
 TRANSFORMERS = {
@@ -104,11 +104,14 @@ def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
     try:
         logger.info("Start loading dataset: %s", dataset)
         config = get_dataset_config(dataset)
-        upsert_dataframe(
-            df=clean_df,
-            table_name=dataset,
-            conflict_columns=("geolocation_id",) if dataset == "geolocation" else config.key_columns,
-        )
+        if dataset == "geolocation":
+            replace_geolocation(clean_df)
+        else:
+            upsert_dataframe(
+                df=clean_df,
+                table_name=dataset,
+                conflict_columns=config.key_columns,
+            )
 
         logger.info("Completed pipeline: %s", dataset)
     except Exception:
