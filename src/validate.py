@@ -2,6 +2,32 @@ import pandas as pd
 from src.logger import get_logger
 from src.configuration import get_dataset_paths
 
+
+def validate_geolocation() -> None:
+    """Rename the ZIP column and assign integer IDs without changing clean input."""
+    dataset_name = "geolocation"
+    logger = get_logger(dataset_name=dataset_name, log_type="validate")
+    paths = get_dataset_paths(dataset_name)
+    try:
+        logger.info("Starting validation for dataset: %s", dataset_name)
+        df = pd.read_csv(paths["clean"], dtype={"geolocation_zip_code_prefix": "string"})
+        if "geolocation_zip_code_prefix" not in df.columns:
+            raise ValueError("Missing column: geolocation_zip_code_prefix")
+        
+        if {"zip_code", "geolocation_id"} & set(df.columns):
+            raise ValueError("Clean geolocation already contains zip_code or geolocation_id")
+        
+        df = df.rename(columns={"geolocation_zip_code_prefix": "zip_code"})
+        df.insert(0, "geolocation_id", range(1, len(df) + 1))
+        paths["validated"].parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(paths["validated"], index=False)
+        logger.info("Successfully validated dataset to: %s", paths["validated"])
+        
+    except Exception:
+        logger.exception("Failed to validate dataset: %s", dataset_name)
+        raise
+
+
 def validate_product() -> None:
     """Build validated category and product files together, preserving existing IDs."""
     dataset_name = "products"

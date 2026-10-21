@@ -129,10 +129,11 @@ def _transform_dataset(
         key_present &= result[column].fillna("").ne("")
 
     # ตรวจสอบ duplicate key และเพิ่ม rejection reason
-    rules[config.duplicate_reason] = (
-        key_present
-        & result.duplicated(subset=list(config.key_columns), keep=False)
-    )
+    if config.key_columns:
+        rules[config.duplicate_reason] = (
+            key_present
+            & result.duplicated(subset=list(config.key_columns), keep=False)
+        )
     return _split_records(result, raw_values, rules, df.index.copy())
 # endregion
 
@@ -158,3 +159,8 @@ def transform_products(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 def transform_product_categories(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Clean category names before validation assigns IDs; English names may be null."""
     return _transform_dataset(df, "product_categories")
+
+
+def transform_geolocation(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Preserve ZIP prefixes as strings and allow multiple locations per prefix."""
+    return _transform_dataset(df, "geolocation")

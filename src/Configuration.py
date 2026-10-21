@@ -31,6 +31,12 @@ class DatasetConfig:
 
 
 _DATASET_CONFIGS = {
+    "geolocation": DatasetConfig(
+        required_columns=('geolocation_zip_code_prefix', 'geolocation_lat', 'geolocation_lng', 'geolocation_city', 'geolocation_state'),
+        text_columns=('geolocation_zip_code_prefix', 'geolocation_city', 'geolocation_state'),
+        numeric_columns=('geolocation_lat', 'geolocation_lng'),
+        reserved_columns=frozenset({'rejection_reason', 'raw_geolocation_lat', 'raw_geolocation_lng'}),
+    ),
     "product_categories": DatasetConfig(
         required_columns=('product_category_name', 'product_category_name_english'),
         text_columns=('product_category_name',),

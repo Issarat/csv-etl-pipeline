@@ -5,13 +5,14 @@ import pandas as pd
 from src.logger import get_logger
 from src.configuration import get_dataset_config, get_dataset_paths
 from src.extract import extract_csv
-from src.validate import validate_product
+from src.validate import validate_product, validate_geolocation
 from src.transform import (
     transform_orders,
     transform_order_items,
     transform_customers,
     transform_products,
     transform_product_categories,
+    transform_geolocation,
 )
 from src.load import create_table, upsert_dataframe
 
@@ -22,10 +23,11 @@ TRANSFORMERS = {
     "customers": transform_customers,
     "products": transform_products,
     "product_categories": transform_product_categories,
+    "geolocation": transform_geolocation,
 }
 
 DATA_LIST = ("customers", "orders", "order_items")
-VALIDATE_LIST = ("product_categories", "products")
+VALIDATE_LIST = ("product_categories", "products", "geolocation")
 
 def _export_csv(df: pd.DataFrame, file_path: Path) -> None:
     file_path = Path(file_path)
@@ -99,7 +101,7 @@ def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
         upsert_dataframe(
             df=clean_df,
             table_name=dataset,
-            conflict_columns=config.key_columns,
+            conflict_columns=("geolocation_id",) if dataset == "geolocation" else config.key_columns,
         )
 
         logger.info("Completed pipeline: %s", dataset)
@@ -133,13 +135,18 @@ def main() -> None:
         for dataset in VALIDATE_LIST:
             _cleaning_dataset(dataset)
         validate_product()
+        validate_geolocation()
 
         if not dev_mode:
             for dataset in VALIDATE_LIST:
                 validated_path = get_dataset_paths(dataset)["validated"]
                 validated_df = extract_csv(
                     str(validated_path),
-                    dtype={"product_category_id": "Int64"},
+                    dtype=(
+                        {"geolocation_id": "Int64", "zip_code": "string"}
+                        if dataset == "geolocation"
+                        else {"product_category_id": "Int64"}
+                    ),
                 )
                 _load_dataset(dataset, validated_df)
 
