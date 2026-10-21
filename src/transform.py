@@ -83,7 +83,8 @@ def _required_field_rules(
     }
 
     for column in config.date_columns + config.numeric_columns:
-        rules[f"missing_{column}"] = ~present[column]
+        if column not in config.nullable_numeric_columns:
+            rules[f"missing_{column}"] = ~present[column]
         rules[f"invalid_{column}"] = present[column] & result[column].isna()
 
     return rules

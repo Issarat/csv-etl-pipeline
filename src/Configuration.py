@@ -30,6 +30,7 @@ class DatasetConfig:
     valid_statuses: frozenset[str] = frozenset()
     valid_payment_types: frozenset[str] = frozenset()
     optional_text_columns: tuple[str, ...] = ()
+    nullable_numeric_columns: tuple[str, ...] = ()
 
 
 _DATASET_CONFIGS = {
@@ -79,6 +80,7 @@ _DATASET_CONFIGS = {
         id_columns=('product_id',),
         key_columns=('product_id',),
         numeric_columns=('product_weight_g', 'product_length_cm', 'product_height_cm', 'product_width_cm', 'product_name_lenght', 'product_description_lenght', 'product_photos_qty'),
+        nullable_numeric_columns=('product_weight_g', 'product_length_cm', 'product_height_cm', 'product_width_cm', 'product_name_lenght', 'product_description_lenght', 'product_photos_qty'),
         duplicate_reason='duplicate_product_id',
         reserved_columns=frozenset({'product_category_id', 'rejection_reason', 'raw_product_category_name', 'raw_product_weight_g', 'raw_product_length_cm', 'raw_product_height_cm', 'raw_product_width_cm', 'raw_product_name_lenght', 'raw_product_description_lenght', 'raw_product_photos_qty'}),
     ),

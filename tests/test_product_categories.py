@@ -38,11 +38,22 @@ def test_shared_rules_reject_invalid_missing_and_duplicate_values():
         "product_weight_g": ["12", None, "bad", "2", "3", "4"],
     })
     clean, rejected = transform_products(products)
-    assert clean.product_id.tolist() == ["a"]
+    assert clean.product_id.tolist() == ["a", "b"]
+    assert pd.isna(clean.product_weight_g.iloc[1])
     assert rejected.rejection_reason.tolist() == [
-        "missing_product_weight_g", "invalid_product_weight_g",
+        "invalid_product_weight_g",
         "duplicate_product_id", "duplicate_product_id", "missing_product_id",
     ]
-    assert pd.isna(rejected.raw_product_weight_g.iloc[0])
-    assert rejected.raw_product_weight_g.iloc[1:].tolist() == ["bad", "2", "3", "4"]
+    assert rejected.raw_product_weight_g.tolist() == ["bad", "2", "3", "4"]
     assert len(clean) + len(rejected) == len(products)
+
+
+def test_all_product_numeric_columns_allow_null_and_blank_but_reject_invalid():
+    products = product_frame({"product_id": ["null", "blank", "bad"], "product_category_name": [None] * 3})
+    for column in get_dataset_config("products").numeric_columns:
+        products[column] = [None, "  ", "invalid"]
+    clean, rejected = transform_products(products)
+    assert clean.product_id.tolist() == ["null", "blank"]
+    for column in get_dataset_config("products").numeric_columns:
+        assert clean[column].isna().all()
+        assert f"invalid_{column}" in rejected.rejection_reason.iloc[0]

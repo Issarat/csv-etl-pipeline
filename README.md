@@ -62,8 +62,9 @@ Cleaning uses shared preparation, type conversion, field validation, and
 clean/rejected splitting. Each rejected row includes `rejection_reason`.
 Configured date and numeric fields retain their original values in `raw_...`
 columns on rejected rows. Clean plus rejected row counts must equal the input.
-Current shared rules reject missing configured numeric fields, including those
-in products.
+Product numeric fields allow null or blank values to match the schema. Supplied
+values that cannot be converted to numbers are rejected. Other datasets retain
+their configured required-field rules.
 
 ## Product validation
 
