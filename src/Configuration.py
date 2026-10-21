@@ -85,10 +85,10 @@ _DATASET_CONFIGS = {
         reserved_columns=frozenset({'product_category_id', 'rejection_reason', 'raw_product_category_name', 'raw_product_weight_g', 'raw_product_length_cm', 'raw_product_height_cm', 'raw_product_width_cm', 'raw_product_name_lenght', 'raw_product_description_lenght', 'raw_product_photos_qty'}),
     ),
     "orders": DatasetConfig(
-        required_columns=('order_id', 'customer_id', 'order_status', 'order_purchase_timestamp', 'order_delivered_customer_date'),
+        required_columns=('order_id', 'customer_id', 'order_status', 'order_purchase_timestamp', 'order_approved_at', 'order_delivered_carrier_date', 'order_delivered_customer_date', 'order_estimated_delivery_date'),
         id_columns=('order_id', 'customer_id'),
-        date_columns=('order_purchase_timestamp', 'order_delivered_customer_date'),
-        reserved_columns=frozenset(('raw_order_delivered_customer_date', 'raw_order_purchase_timestamp', 'rejection_reason')),
+        date_columns=('order_purchase_timestamp', 'order_delivered_customer_date', 'order_approved_at', 'order_delivered_carrier_date', 'order_estimated_delivery_date'),
+        reserved_columns=frozenset(('raw_order_delivered_customer_date', 'raw_order_purchase_timestamp', 'raw_order_approved_at', 'raw_order_delivered_carrier_date', 'raw_order_estimated_delivery_date', 'rejection_reason')),
         valid_statuses=frozenset(('approved', 'canceled', 'created', 'delivered', 'invoiced', 'processing', 'shipped', 'unavailable')),
         key_columns=('order_id',),
         duplicate_reason='duplicate_order_id',

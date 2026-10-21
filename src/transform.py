@@ -55,7 +55,7 @@ def _orders_rules(
     config: DatasetConfig,
 ) -> dict[str, pd.Series]:
     
-    # Delivery date is optional. Preserve the existing reason names/order.
+    # Purchase date is required; other dates may be empty but must parse if given.
     result["order_status"] = (
         result["order_status"].astype("string").str.strip().str.lower()
     )
@@ -63,7 +63,7 @@ def _orders_rules(
     purchase = "order_purchase_timestamp"
     delivery = "order_delivered_customer_date"
 
-    return {
+    rules = {
         "missing_order_id": result["order_id"].fillna("").eq(""),
         "missing_customer_id": result["customer_id"].fillna("").eq(""),
         "invalid_status": ~result["order_status"].isin(config.valid_statuses),
@@ -71,6 +71,10 @@ def _orders_rules(
         "invalid_purchase_date": present[purchase] & result[purchase].isna(),
         "invalid_delivery_date": present[delivery] & result[delivery].isna(),
     }
+    for column in config.date_columns:
+        if column not in (purchase, delivery):
+            rules[f"invalid_{column}"] = present[column] & result[column].isna()
+    return rules
 
 def _required_field_rules(
     result: pd.DataFrame,
@@ -151,7 +155,7 @@ def _transform_dataset(
 # endregion
 
 def transform_orders(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Normalize orders; delivery dates may be empty but must parse if given."""
+    """Normalize orders; only purchase dates are required, but all dates must parse."""
     return _transform_dataset(df, "orders")
 
 
