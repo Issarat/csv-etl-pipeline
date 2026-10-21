@@ -67,6 +67,19 @@ CREATE TABLE IF NOT EXISTS orders (
     order_estimated_delivery_date TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS order_reviews (
+    review_id UUID NOT NULL,
+    order_id UUID NOT NULL REFERENCES orders (order_id),
+    review_score INTEGER NOT NULL CHECK (review_score BETWEEN 1 AND 5),
+    review_comment_title TEXT,
+    review_comment_message TEXT,
+    review_creation_date TIMESTAMP NOT NULL,
+    review_answer_timestamp TIMESTAMP NOT NULL,
+    PRIMARY KEY (review_id, order_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_reviews_order_id ON order_reviews (order_id);
+
 CREATE TABLE IF NOT EXISTS order_payments (
     order_payments_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_id UUID NOT NULL REFERENCES orders (order_id),

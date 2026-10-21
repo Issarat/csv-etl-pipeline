@@ -15,6 +15,7 @@ from src.transform import (
     transform_geolocation,
     transform_sellers,
     transform_order_payments,
+    transform_order_reviews,
 )
 from src.load import create_table, upsert_dataframe
 
@@ -28,9 +29,10 @@ TRANSFORMERS = {
     "geolocation": transform_geolocation,
     "sellers": transform_sellers,
     "order_payments": transform_order_payments,
+    "order_reviews": transform_order_reviews,
 }
 
-DATA_LIST = ("customers", "sellers", "orders", "order_payments", "order_items")
+DATA_LIST = ("customers", "sellers", "orders", "order_payments", "order_reviews", "order_items")
 VALIDATE_LIST = ("product_categories", "products", "geolocation")
 
 def _export_csv(df: pd.DataFrame, file_path: Path) -> None:
@@ -49,7 +51,7 @@ def _cleaning_dataset(dataset: str) -> pd.DataFrame:
         logger.info("Start cleaning pipeline: %s", dataset)
         paths = get_dataset_paths(dataset)
         config = get_dataset_config(dataset)
-        text_columns = config.id_columns + config.text_columns
+        text_columns = config.id_columns + config.text_columns + config.optional_text_columns
         
         # Extract
         df = extract_csv(

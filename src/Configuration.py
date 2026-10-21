@@ -29,9 +29,20 @@ class DatasetConfig:
     reserved_columns: frozenset[str] = frozenset()
     valid_statuses: frozenset[str] = frozenset()
     valid_payment_types: frozenset[str] = frozenset()
+    optional_text_columns: tuple[str, ...] = ()
 
 
 _DATASET_CONFIGS = {
+    "order_reviews": DatasetConfig(
+        required_columns=('review_id', 'order_id', 'review_score', 'review_comment_title', 'review_comment_message', 'review_creation_date', 'review_answer_timestamp'),
+        id_columns=('review_id', 'order_id'),
+        optional_text_columns=('review_comment_title', 'review_comment_message'),
+        date_columns=('review_creation_date', 'review_answer_timestamp'),
+        numeric_columns=('review_score',),
+        key_columns=('review_id', 'order_id'),
+        duplicate_reason='duplicate_order_review_key',
+        reserved_columns=frozenset({'rejection_reason', 'raw_review_score', 'raw_review_creation_date', 'raw_review_answer_timestamp'}),
+    ),
     "order_payments": DatasetConfig(
         required_columns=('order_id', 'payment_sequential', 'payment_type', 'payment_installments', 'payment_value'),
         id_columns=('order_id',),

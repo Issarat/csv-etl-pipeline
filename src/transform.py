@@ -21,7 +21,7 @@ def _prepare_data(df: pd.DataFrame, config: DatasetConfig) -> pd.DataFrame:
     result = df.copy().reset_index(drop=True)
     
     #4. cleaning id_columns และ text_columns เป็น string และ strip whitespace
-    for column in config.id_columns + config.text_columns:
+    for column in config.id_columns + config.text_columns + config.optional_text_columns:
         result[column] = result[column].astype("string").str.strip()
 
     return result
@@ -124,6 +124,8 @@ def _transform_dataset(
     raw_values, present = _convert_values(result, config)
     rule_builder = _orders_rules if dataset_name == "orders" else _required_field_rules
     rules = rule_builder(result, present, config)
+    if dataset_name == "order_reviews":
+        rules["invalid_review_score"] |= present["review_score"] & ~result["review_score"].isin([1, 2, 3, 4, 5])
     if dataset_name == "order_payments":
         result["payment_type"] = result["payment_type"].astype("string").str.strip().str.lower()
         rules["invalid_payment_type"] = ~result["payment_type"].isin(config.valid_payment_types)
@@ -179,6 +181,11 @@ def transform_geolocation(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]
 def transform_sellers(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Clean the four seller columns while preserving ZIP prefixes as strings."""
     return _transform_dataset(df, "sellers")
+
+
+def transform_order_reviews(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Clean reviews; comments are optional and scores must be integers from 1 to 5."""
+    return _transform_dataset(df, "order_reviews")
 
 
 def transform_order_payments(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
