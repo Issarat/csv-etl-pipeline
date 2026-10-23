@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import pandas as pd
 import pytest
 
@@ -5,9 +7,13 @@ from src.configuration import get_dataset_config
 from src.transform import transform_orders
 
 
+ORDER_ID = "00000000000000000000000000000011"
+CUSTOMER_ID = "00000000000000000000000000000012"
+
+
 def order_frame():
     row = {column: None for column in get_dataset_config("orders").required_columns}
-    row.update(order_id="a", customer_id="b", order_status=" CREATED ",
+    row.update(order_id=ORDER_ID, customer_id=CUSTOMER_ID, order_status=" CREATED ",
                order_purchase_timestamp="2020-01-01 10:00:00")
     return pd.DataFrame([row])
 
@@ -20,6 +26,8 @@ def test_optional_dates_allow_null_and_blanks_and_convert_valid_values():
     clean, rejected = transform_orders(df)
     assert len(clean) == 1 and rejected.empty
     assert clean.order_status.iloc[0] == "created"
+    assert clean.order_id.iloc[0] == str(UUID(ORDER_ID))
+    assert clean.customer_id.iloc[0] == str(UUID(CUSTOMER_ID))
     for column in get_dataset_config("orders").date_columns:
         assert pd.api.types.is_datetime64_any_dtype(clean[column])
     assert pd.isna(clean.order_approved_at.iloc[0])
@@ -49,3 +57,15 @@ def test_purchase_date_still_required():
     clean, rejected = transform_orders(df)
     assert clean.empty
     assert rejected.rejection_reason.tolist() == ["missing_purchase_date"]
+
+
+@pytest.mark.parametrize("column", ["order_id", "customer_id"])
+def test_invalid_uuid_is_rejected(column):
+    df = order_frame()
+    df[column] = "not-a-uuid"
+
+    clean, rejected = transform_orders(df)
+
+    assert clean.empty
+    assert rejected.rejection_reason.tolist() == [f"invalid_{column}"]
+    assert rejected[f"raw_{column}"].tolist() == ["not-a-uuid"]

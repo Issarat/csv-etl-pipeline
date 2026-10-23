@@ -146,11 +146,41 @@ def _required_field_rules(
 
     return rules
 
-def _order_items_rules(
+
+def _uuid_rules(
     result: pd.DataFrame,
     raw_values: pd.DataFrame,
-    present: dict[str, pd.Series],
     config: DatasetConfig,
+    rules: Rules,
+) -> Rules:
+    for column in config.id_columns:
+        raw_values[column] = result[column].copy()
+        normalized = []
+        for value in result[column]:
+            try:
+                normalized.append(str(UUID(value)))
+            except (ValueError, TypeError, AttributeError):
+                normalized.append(pd.NA)
+
+        normalized_values = pd.Series(
+            normalized,
+            index=result.index,
+            dtype="string",
+        )
+        rules[f"invalid_{column}"] = (
+            result[column].fillna("").ne("")
+            & normalized_values.isna()
+        )
+        result[column] = normalized_values
+
+    return rules
+
+
+def _order_items_rules(
+    result: pd.DataFrame,
+    _raw_values: pd.DataFrame,
+    present: dict[str, pd.Series],
+    _config: DatasetConfig,
     rules: Rules,
 ) -> dict[str, pd.Series]:
     #set floor data base
@@ -162,24 +192,11 @@ def _order_items_rules(
             )
         rules[f"invalid_{column}"] |= present[column] & invalid
 
-    #normalize data
-    for column in config.id_columns:
-        raw_values[column] = result[column].copy()
-        normalized = []
-        for value in result[column]:
-            try:
-                normalized.append(str(UUID(value)))
-            except (ValueError, TypeError, AttributeError):
-                normalized.append(pd.NA)
-        normalized = pd.Series(normalized, index=result.index, dtype="string")
-        rules[f"invalid_{column}"] = result[column].fillna("").ne("") & normalized.isna()
-        result[column] = normalized
-
     return rules
 
 def _order_payments_rules(
     result: pd.DataFrame,
-    raw_values: pd.DataFrame,
+    _raw_values: pd.DataFrame,
     present: dict[str, pd.Series],
     config: DatasetConfig,
     rules: Rules,
@@ -193,44 +210,20 @@ def _order_payments_rules(
             invalid |= result[column].notna() & result[column].mod(1).ne(0)
         rules[f"invalid_{column}"] |= present[column] & invalid
 
-    for column in config.id_columns:
-        raw_values[column] = result[column].copy()
-        normalized = []
-        for value in result[column]:
-            try:
-                normalized.append(str(UUID(value)))
-            except (ValueError, TypeError, AttributeError):
-                normalized.append(pd.NA)
-        normalized = pd.Series(normalized, index=result.index, dtype="string")
-        rules[f"invalid_{column}"] = result[column].fillna("").ne("") & normalized.isna()
-        result[column] = normalized
-
     return rules
 
 
 def _order_reviews_rules(
     result: pd.DataFrame,
-    raw_values: pd.DataFrame,
+    _raw_values: pd.DataFrame,
     present: dict[str, pd.Series],
-    config: DatasetConfig,
+    _config: DatasetConfig,
     rules: Rules,
 ) -> Rules:
     rules["invalid_review_score"] |= (
         present["review_score"]
         & ~result["review_score"].isin([1, 2, 3, 4, 5])
     )
-
-    for column in config.id_columns:
-        raw_values[column] = result[column].copy()
-        normalized = []
-        for value in result[column]:
-            try:
-                normalized.append(str(UUID(value)))
-            except (ValueError, TypeError, AttributeError):
-                normalized.append(pd.NA)
-        normalized = pd.Series(normalized, index=result.index, dtype="string")
-        rules[f"invalid_{column}"] = result[column].fillna("").ne("") & normalized.isna()
-        result[column] = normalized
 
     return rules
 
@@ -269,6 +262,7 @@ def _transform_dataset(
     raw_values, present = _convert_values(result, config)
     rule_builder = _get_rules_builder(dataset_name)
     rules = rule_builder(result, present, config)
+    rules = _uuid_rules(result, raw_values, config, rules)
     rules = _get_addition_rules(
         dataset_name,
         result,

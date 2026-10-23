@@ -190,6 +190,8 @@
   },
   "active": "4fc96190c0d69b3c",
   "lastOpenFiles": [
+    "tests/__pycache__/test_customer_seller_uuid.cpython-314-pytest-9.1.1.pyc",
+    "tests/test_customer_seller_uuid.py",
     "logs/profiling/sellers.log",
     "logs/profiling/geolocation.log",
     "logs/profiling/product_categories.log",
@@ -199,8 +201,6 @@
     "logs/profiling",
     "src/__pycache__/profiling.cpython-314.pyc",
     "data/validate/olist_geolocation_validated.csv",
-    "data/rejected/olist_geolocation_rejected.csv",
-    "data/clean/olist_geolocation_clean.csv",
     "docs/er-diagram.md",
     "README.md",
     "docs/setup.md"
