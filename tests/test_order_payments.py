@@ -86,3 +86,35 @@ def test_max_postgres_integer_is_allowed(column):
     assert len(clean) == 1
     assert rejected.empty
     assert clean[column].tolist() == [2147483647]
+
+
+@pytest.mark.parametrize("value", [None, "", " "])
+def test_missing_payment_type_has_only_missing_reason(value):
+    df = payment_frame([VALID_ORDER])
+    df["payment_type"] = value
+
+    clean, rejected = transform_order_payments(df)
+
+    assert clean.empty
+    assert rejected["rejection_reason"].tolist() == ["missing_payment_type"]
+
+
+def test_unknown_payment_type_is_invalid():
+    df = payment_frame([VALID_ORDER])
+    df["payment_type"] = "cash"
+
+    clean, rejected = transform_order_payments(df)
+
+    assert clean.empty
+    assert rejected["rejection_reason"].tolist() == ["invalid_payment_type"]
+
+
+def test_payment_type_is_normalized_before_validation():
+    df = payment_frame([VALID_ORDER])
+    df["payment_type"] = " CREDIT_CARD "
+
+    clean, rejected = transform_order_payments(df)
+
+    assert len(clean) == 1
+    assert rejected.empty
+    assert clean["payment_type"].tolist() == ["credit_card"]

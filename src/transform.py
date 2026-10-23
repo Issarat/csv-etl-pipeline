@@ -25,7 +25,6 @@ def _get_rules_builder(dataset_name: str) -> RuleBuilder:
 def _get_addition_rules(
     dataset_name: str,
     result: pd.DataFrame,
-    raw_values: pd.DataFrame,
     present: dict[str, pd.Series],
     config: DatasetConfig,
     rules: Rules,
@@ -34,15 +33,12 @@ def _get_addition_rules(
         case "order_items":
             return _order_items_rules(
                 result,
-                raw_values,
                 present,
-                config,
                 rules,
             )
         case "order_payments":
             return _order_payments_rules(
                 result,
-                raw_values,
                 present,
                 config,
                 rules,
@@ -50,9 +46,7 @@ def _get_addition_rules(
         case "order_reviews":
             return _order_reviews_rules(
                 result,
-                raw_values,
                 present,
-                config,
                 rules,
             )
         case _:
@@ -179,9 +173,7 @@ def _uuid_rules(
 
 def _order_items_rules(
     result: pd.DataFrame,
-    _raw_values: pd.DataFrame,
     present: dict[str, pd.Series],
-    _config: DatasetConfig,
     rules: Rules,
 ) -> dict[str, pd.Series]:
     #set floor data base
@@ -198,14 +190,23 @@ def _order_items_rules(
 
 def _order_payments_rules(
     result: pd.DataFrame,
-    _raw_values: pd.DataFrame,
     present: dict[str, pd.Series],
     config: DatasetConfig,
     rules: Rules,
 ) -> dict[str, pd.Series]:
-    result["payment_type"] = result["payment_type"].astype("string").str.strip().str.lower()
-    rules["invalid_payment_type"] = ~result["payment_type"].isin(config.valid_payment_types)
+    result["payment_type"] = (
+        result["payment_type"]
+        .astype("string")
+        .str.strip()
+        .str.lower()
+    )
 
+    has_payment_type = result["payment_type"].fillna("").ne("")
+
+    rules["invalid_payment_type"] = (
+        has_payment_type
+        & ~result["payment_type"].isin(config.valid_payment_types)
+    )
     for column, minimum in (("payment_sequential", 1), ("payment_installments", 0), ("payment_value", 0)):
         invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
         if column != "payment_value":
@@ -220,9 +221,7 @@ def _order_payments_rules(
 
 def _order_reviews_rules(
     result: pd.DataFrame,
-    _raw_values: pd.DataFrame,
     present: dict[str, pd.Series],
-    _config: DatasetConfig,
     rules: Rules,
 ) -> Rules:
     rules["invalid_review_score"] |= (
@@ -271,7 +270,6 @@ def _transform_dataset(
     rules = _get_addition_rules(
         dataset_name,
         result,
-        raw_values,
         present,
         config,
         rules,
