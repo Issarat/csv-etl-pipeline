@@ -22,7 +22,7 @@ def _get_rules_builder(dataset_name: str) -> RuleBuilder:
             return _required_field_rules
 
 
-def _get_addition_rules(
+def _get_additional_rules(
     dataset_name: str,
     result: pd.DataFrame,
     present: dict[str, pd.Series],
