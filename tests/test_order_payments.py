@@ -57,3 +57,32 @@ def test_uuid_generation_remains_stable_across_input_formats():
     first, _ = transform_order_payments(payment_frame([VALID_ORDER]))
     second, _ = transform_order_payments(payment_frame([f" {str(UUID(VALID_ORDER)).upper()} "]))
     assert first.order_payments_id.tolist() == second.order_payments_id.tolist()
+
+
+@pytest.mark.parametrize(
+    "column",
+    ["payment_sequential", "payment_installments"],
+)
+def test_payment_integer_overflow_is_rejected(column):
+    df = payment_frame([VALID_ORDER])
+    df[column] = "2147483648"
+
+    clean, rejected = transform_order_payments(df)
+
+    assert clean.empty
+    assert rejected["rejection_reason"].tolist() == [f"invalid_{column}"]
+
+
+@pytest.mark.parametrize(
+    "column",
+    ["payment_sequential", "payment_installments"],
+)
+def test_max_postgres_integer_is_allowed(column):
+    df = payment_frame([VALID_ORDER])
+    df[column] = "2147483647"
+
+    clean, rejected = transform_order_payments(df)
+
+    assert len(clean) == 1
+    assert rejected.empty
+    assert clean[column].tolist() == [2147483647]

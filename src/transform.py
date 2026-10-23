@@ -7,6 +7,7 @@ from src.configuration import DatasetConfig, get_dataset_config
 
 # region Data Transformation Functions
 Rules = dict[str, pd.Series]
+POSTGRES_INTEGER_MAX = 2_147_483_647
 RuleBuilder = Callable[
     [pd.DataFrame, dict[str, pd.Series], DatasetConfig],
     Rules,
@@ -188,7 +189,8 @@ def _order_items_rules(
         invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
         if column == "order_item_id":
             invalid |= result[column].notna() & (
-                result[column].mod(1).ne(0) | result[column].gt(2147483647)
+                result[column].mod(1).ne(0)
+                | result[column].gt(POSTGRES_INTEGER_MAX)
             )
         rules[f"invalid_{column}"] |= present[column] & invalid
 
@@ -207,7 +209,10 @@ def _order_payments_rules(
     for column, minimum in (("payment_sequential", 1), ("payment_installments", 0), ("payment_value", 0)):
         invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
         if column != "payment_value":
-            invalid |= result[column].notna() & result[column].mod(1).ne(0)
+            invalid |= result[column].notna() & (
+                result[column].mod(1).ne(0)
+                | result[column].gt(POSTGRES_INTEGER_MAX)
+            )
         rules[f"invalid_{column}"] |= present[column] & invalid
 
     return rules
