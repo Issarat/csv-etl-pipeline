@@ -76,7 +76,17 @@ _DATASET_CONFIGS = {
         reserved_columns=frozenset({'rejection_reason'}),
     ),
     "products": DatasetConfig(
-        required_columns=('product_id', 'product_category_name', 'product_weight_g', 'product_length_cm', 'product_height_cm', 'product_width_cm', 'product_name_lenght', 'product_description_lenght', 'product_photos_qty'),
+        required_columns=(
+            'product_id',
+            'product_category_name',
+            'product_weight_g',
+            'product_length_cm',
+            'product_height_cm',
+            'product_width_cm',
+            'product_name_lenght',
+            'product_description_lenght',
+            'product_photos_qty',
+        ),
         id_columns=('product_id',),
         key_columns=('product_id',),
         numeric_columns=('product_weight_g', 'product_length_cm', 'product_height_cm', 'product_width_cm', 'product_name_lenght', 'product_description_lenght', 'product_photos_qty'),

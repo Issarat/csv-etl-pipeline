@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from src.configuration import get_dataset_config
 from src.transform import transform_products
@@ -10,6 +11,16 @@ def product_frame(data):
         if column not in frame:
             frame[column] = "1"
     return frame
+
+
+def test_products_require_all_source_columns():
+    products = pd.DataFrame({
+        "product_id": ["a"],
+        "product_category_name": ["books"],
+    })
+
+    with pytest.raises(ValueError, match="Missing columns"):
+        transform_products(products)
 
 
 def test_cleans_products_and_retains_category_names_without_mapping():

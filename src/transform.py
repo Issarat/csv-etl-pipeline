@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pandas as pd
@@ -5,6 +6,58 @@ import pandas as pd
 from src.configuration import DatasetConfig, get_dataset_config
 
 # region Data Transformation Functions
+Rules = dict[str, pd.Series]
+RuleBuilder = Callable[
+    [pd.DataFrame, dict[str, pd.Series], DatasetConfig],
+    Rules,
+]
+
+
+def _get_rules_builder(dataset_name: str) -> RuleBuilder:
+    match dataset_name:
+        case "orders":
+            return _orders_rules
+        case _:
+            return _required_field_rules
+
+
+def _get_addition_rules(
+    dataset_name: str,
+    result: pd.DataFrame,
+    raw_values: pd.DataFrame,
+    present: dict[str, pd.Series],
+    config: DatasetConfig,
+    rules: Rules,
+) -> Rules:
+    match dataset_name:
+        case "order_items":
+            return _order_items_rules(
+                result,
+                raw_values,
+                present,
+                config,
+                rules,
+            )
+        case "order_payments":
+            return _order_payments_rules(
+                result,
+                raw_values,
+                present,
+                config,
+                rules,
+            )
+        case "order_reviews":
+            return _order_reviews_rules(
+                result,
+                raw_values,
+                present,
+                config,
+                rules,
+            )
+        case _:
+            return rules
+
+
 def _prepare_data(df: pd.DataFrame, config: DatasetConfig) -> pd.DataFrame:
 
     #1. เช็คว่ามีคอลัมน์ ที่ set required_columns ว่าครบหรือไม่
@@ -93,6 +146,94 @@ def _required_field_rules(
 
     return rules
 
+def _order_items_rules(
+    result: pd.DataFrame,
+    raw_values: pd.DataFrame,
+    present: dict[str, pd.Series],
+    config: DatasetConfig,
+    rules: Rules,
+) -> dict[str, pd.Series]:
+    #set floor data base
+    for column, minimum in (("order_item_id", 1), ("price", 0), ("freight_value", 0)):
+        invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
+        if column == "order_item_id":
+            invalid |= result[column].notna() & (
+                result[column].mod(1).ne(0) | result[column].gt(2147483647)
+            )
+        rules[f"invalid_{column}"] |= present[column] & invalid
+
+    #normalize data
+    for column in config.id_columns:
+        raw_values[column] = result[column].copy()
+        normalized = []
+        for value in result[column]:
+            try:
+                normalized.append(str(UUID(value)))
+            except (ValueError, TypeError, AttributeError):
+                normalized.append(pd.NA)
+        normalized = pd.Series(normalized, index=result.index, dtype="string")
+        rules[f"invalid_{column}"] = result[column].fillna("").ne("") & normalized.isna()
+        result[column] = normalized
+
+    return rules
+
+def _order_payments_rules(
+    result: pd.DataFrame,
+    raw_values: pd.DataFrame,
+    present: dict[str, pd.Series],
+    config: DatasetConfig,
+    rules: Rules,
+) -> dict[str, pd.Series]:
+    result["payment_type"] = result["payment_type"].astype("string").str.strip().str.lower()
+    rules["invalid_payment_type"] = ~result["payment_type"].isin(config.valid_payment_types)
+
+    for column, minimum in (("payment_sequential", 1), ("payment_installments", 0), ("payment_value", 0)):
+        invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
+        if column != "payment_value":
+            invalid |= result[column].notna() & result[column].mod(1).ne(0)
+        rules[f"invalid_{column}"] |= present[column] & invalid
+
+    for column in config.id_columns:
+        raw_values[column] = result[column].copy()
+        normalized = []
+        for value in result[column]:
+            try:
+                normalized.append(str(UUID(value)))
+            except (ValueError, TypeError, AttributeError):
+                normalized.append(pd.NA)
+        normalized = pd.Series(normalized, index=result.index, dtype="string")
+        rules[f"invalid_{column}"] = result[column].fillna("").ne("") & normalized.isna()
+        result[column] = normalized
+
+    return rules
+
+
+def _order_reviews_rules(
+    result: pd.DataFrame,
+    raw_values: pd.DataFrame,
+    present: dict[str, pd.Series],
+    config: DatasetConfig,
+    rules: Rules,
+) -> Rules:
+    rules["invalid_review_score"] |= (
+        present["review_score"]
+        & ~result["review_score"].isin([1, 2, 3, 4, 5])
+    )
+
+    for column in config.id_columns:
+        raw_values[column] = result[column].copy()
+        normalized = []
+        for value in result[column]:
+            try:
+                normalized.append(str(UUID(value)))
+            except (ValueError, TypeError, AttributeError):
+                normalized.append(pd.NA)
+        normalized = pd.Series(normalized, index=result.index, dtype="string")
+        rules[f"invalid_{column}"] = result[column].fillna("").ne("") & normalized.isna()
+        result[column] = normalized
+
+    return rules
+
 def _split_records(
     result: pd.DataFrame,
     raw_values: pd.DataFrame,
@@ -123,42 +264,20 @@ def _transform_dataset(
     df: pd.DataFrame,
     dataset_name: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    
     config = get_dataset_config(dataset_name)
     result = _prepare_data(df, config)
     raw_values, present = _convert_values(result, config)
-    rule_builder = _orders_rules if dataset_name == "orders" else _required_field_rules
+    rule_builder = _get_rules_builder(dataset_name)
     rules = rule_builder(result, present, config)
-    if dataset_name in ("order_items", "order_payments"):
-        for column in config.id_columns:
-            raw_values[column] = result[column].copy()
-            normalized = []
-            for value in result[column]:
-                try:
-                    normalized.append(str(UUID(value)))
-                except (ValueError, TypeError, AttributeError):
-                    normalized.append(pd.NA)
-            normalized = pd.Series(normalized, index=result.index, dtype="string")
-            rules[f"invalid_{column}"] = result[column].fillna("").ne("") & normalized.isna()
-            result[column] = normalized
-    if dataset_name == "order_items":
-        for column, minimum in (("order_item_id", 1), ("price", 0), ("freight_value", 0)):
-            invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
-            if column == "order_item_id":
-                invalid |= result[column].notna() & (
-                    result[column].mod(1).ne(0) | result[column].gt(2147483647)
-                )
-            rules[f"invalid_{column}"] |= present[column] & invalid
-    if dataset_name == "order_reviews":
-        rules["invalid_review_score"] |= present["review_score"] & ~result["review_score"].isin([1, 2, 3, 4, 5])
-    if dataset_name == "order_payments":
-        result["payment_type"] = result["payment_type"].astype("string").str.strip().str.lower()
-        rules["invalid_payment_type"] = ~result["payment_type"].isin(config.valid_payment_types)
-        for column, minimum in (("payment_sequential", 1), ("payment_installments", 0), ("payment_value", 0)):
-            invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
-            if column != "payment_value":
-                invalid |= result[column].notna() & result[column].mod(1).ne(0)
-            rules[f"invalid_{column}"] |= present[column] & invalid
+    rules = _get_addition_rules(
+        dataset_name,
+        result,
+        raw_values,
+        present,
+        config,
+        rules,
+    )
+
     key_present = pd.Series(True, index=result.index)
 
     # ตรวจสอบว่ามีค่าใน key_columns ครบหรือไม่ และ เช็คว่ามีค่าใน key_columns ครบหรือไม่
