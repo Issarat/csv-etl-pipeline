@@ -35,7 +35,7 @@ def create_table() -> list[str]:
         log_type="load",
     )
 
-    schema_file = PROJECT_ROOT / "sql" / "schma.sql"
+    schema_file = PROJECT_ROOT / "sql" / "schema.sql"
 
     try:
         if not schema_file.exists():

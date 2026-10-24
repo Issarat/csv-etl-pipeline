@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 import pandas as pd
 import pytest
@@ -9,6 +9,39 @@ from src import load, validate, pipeline
 
 
 COLUMNS = ["geolocation_zip_code_prefix", "geolocation_lat", "geolocation_lng", "geolocation_city", "geolocation_state"]
+
+
+def test_replace_with_retry_recovers_from_temporary_file_lock(monkeypatch):
+    temporary = Mock()
+    output = Mock()
+    temporary.replace.side_effect = [PermissionError, PermissionError, None]
+    sleep = Mock()
+    monkeypatch.setattr(validate.time, "sleep", sleep)
+
+    validate.replace_with_retry(
+        temporary,
+        output,
+        attempts=3,
+        delay_seconds=0.25,
+    )
+
+    assert temporary.replace.call_count == 3
+    sleep.assert_has_calls([call(0.25), call(0.25)])
+
+
+def test_replace_with_retry_reports_persistent_file_lock(monkeypatch):
+    temporary = Mock()
+    output = "locked.csv"
+    temporary.replace.side_effect = PermissionError
+    monkeypatch.setattr(validate.time, "sleep", Mock())
+
+    with pytest.raises(PermissionError, match="Close any application"):
+        validate.replace_with_retry(
+            temporary,
+            output,
+            attempts=2,
+            delay_seconds=0,
+        )
 
 
 def test_ids_survive_reorder_removal_addition_and_return(tmp_path, monkeypatch):
@@ -44,6 +77,24 @@ def test_bootstrap_from_existing_validated_ids(tmp_path, monkeypatch):
     monkeypatch.setattr(validate, "get_logger", Mock(return_value=Mock()))
     validate.validate_geolocation()
     assert pd.read_csv(output).geolocation_id.tolist() == [42]
+
+
+def test_pipeline_exports_csv_with_atomic_replace(tmp_path, monkeypatch):
+    output = tmp_path / "clean" / "geolocation.csv"
+    replace = Mock(side_effect=lambda temporary, target: temporary.replace(target))
+    monkeypatch.setattr(pipeline, "replace_with_retry", replace)
+    frame = pd.DataFrame({"zip_code": ["01001"]})
+
+    pipeline._export_csv(frame, output)
+
+    replace.assert_called_once_with(
+        output.with_suffix(".csv.tmp"),
+        output,
+    )
+    assert not output.with_suffix(".csv.tmp").exists()
+    assert pd.read_csv(output, dtype={"zip_code": "string"}).to_dict("list") == {
+        "zip_code": ["01001"]
+    }
 
 
 @pytest.fixture

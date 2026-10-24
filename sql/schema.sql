@@ -1,7 +1,6 @@
 -- PostgreSQL schema for the clean Olist datasets.
 -- Existing 32-character hexadecimal IDs load directly into PostgreSQL UUID columns.
 -- Load categories before products; orders, products, and sellers before order_items.
-
 CREATE TABLE IF NOT EXISTS sellers (
     seller_id UUID PRIMARY KEY,
     seller_zip_code_prefix VARCHAR(5) NOT NULL,

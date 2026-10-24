@@ -1,6 +1,29 @@
+import time
+from pathlib import Path
+
 import pandas as pd
 from src.logger import get_logger
 from src.configuration import get_dataset_paths
+
+
+def replace_with_retry(
+    temporary: Path,
+    output: Path,
+    attempts: int = 5,
+    delay_seconds: float = 1.0,
+) -> None:
+    """Atomically replace an output, retrying transient Windows file locks."""
+    for attempt in range(1, attempts + 1):
+        try:
+            temporary.replace(output)
+            return
+        except PermissionError as error:
+            if attempt == attempts:
+                raise PermissionError(
+                    f"Cannot replace output file: {output}. "
+                    "Close any application that has the file open and try again."
+                ) from error
+            time.sleep(delay_seconds)
 
 
 def validate_geolocation() -> None:
@@ -53,7 +76,7 @@ def validate_geolocation() -> None:
         for output, frame in ((mapping_path, mapping), (paths["validated"], df)):
             temporary = output.with_suffix(output.suffix + ".tmp")
             frame.to_csv(temporary, index=False)
-            temporary.replace(output)
+            replace_with_retry(temporary, output)
         logger.info("Successfully validated dataset to: %s", paths["validated"])
         
     except Exception:

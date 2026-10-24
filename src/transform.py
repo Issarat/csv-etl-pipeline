@@ -267,7 +267,7 @@ def _transform_dataset(
     rule_builder = _get_rules_builder(dataset_name)
     rules = rule_builder(result, present, config)
     rules = _uuid_rules(result, raw_values, config, rules)
-    rules = _get_addition_rules(
+    rules = _get_additional_rules(
         dataset_name,
         result,
         present,
