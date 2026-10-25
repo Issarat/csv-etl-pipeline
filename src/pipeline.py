@@ -115,7 +115,7 @@ def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
         logger.exception("Failed pipeline: %s", dataset)
         raise
 
-dev_mode = True
+dev_mode = False
 
 def main() -> None:
     pipeline_logger = get_logger(
