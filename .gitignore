@@ -27,6 +27,12 @@ build/
 dist/
 *.egg-info/
 
+# Generated pipeline output
+/data/clean/
+/data/rejected/
+/data/validate/
+/logs/
+
 # Editor and workspace metadata
 .vscode/
 .idea/
@@ -34,7 +40,6 @@ dist/
 *.code-workspace
 
 # Logs and operating system files
-logs/
 *.log
 .DS_Store
 Thumbs.db
