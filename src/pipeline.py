@@ -160,17 +160,17 @@ def main() -> None:
                 )
                 _load_dataset(dataset, validated_df)
 
-                    # ต้องทำตามลำดับ Foreign Key
-            order_items_df = None
-            for dataset in DATA_LIST:
-                clean_df = _cleaning_dataset(dataset)
-                if dataset == "order_items":
-                    order_items_df = clean_df
-                elif not dev_mode:
-                    _load_dataset(dataset, clean_df)
+        # ต้องทำตามลำดับ Foreign Key
+        order_items_df = None
+        for dataset in DATA_LIST:
+            clean_df = _cleaning_dataset(dataset)
+            if dataset == "order_items":
+                order_items_df = clean_df
+            elif not dev_mode:
+                _load_dataset(dataset, clean_df)
 
-            if order_items_df is not None:
-                _load_dataset("order_items", order_items_df)
+        if order_items_df is not None and not dev_mode: 
+            _load_dataset("order_items", order_items_df)
 
         pipeline_logger.info(
             "ETL pipeline completed successfully"
