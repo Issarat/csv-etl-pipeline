@@ -30,6 +30,7 @@ class DatasetConfig:
     valid_statuses: frozenset[str] = frozenset()
     valid_payment_types: frozenset[str] = frozenset()
     optional_text_columns: tuple[str, ...] = ()
+    nullable_numeric_columns: tuple[str, ...] = ()
 
 
 _DATASET_CONFIGS = {
@@ -41,7 +42,7 @@ _DATASET_CONFIGS = {
         numeric_columns=('review_score',),
         key_columns=('order_review_id', 'order_id'),
         duplicate_reason='duplicate_order_review_key',
-        reserved_columns=frozenset({'rejection_reason', 'raw_review_score', 'raw_review_creation_date', 'raw_review_answer_timestamp'}),
+        reserved_columns=frozenset({'rejection_reason', 'raw_review_score', 'raw_review_creation_date', 'raw_review_answer_timestamp', 'raw_order_review_id','raw_order_id'}),
     ),
     "order_payments": DatasetConfig(
         required_columns=('order_id', 'payment_sequential', 'payment_type', 'payment_installments', 'payment_value'),
@@ -51,7 +52,7 @@ _DATASET_CONFIGS = {
         numeric_columns=('payment_sequential', 'payment_installments', 'payment_value'),
         key_columns=('order_id', 'payment_sequential'),
         duplicate_reason='duplicate_order_payment_key',
-        reserved_columns=frozenset({'order_payments_id', 'rejection_reason', 'raw_payment_sequential', 'raw_payment_installments', 'raw_payment_value'}),
+        reserved_columns=frozenset({'order_payments_id', 'raw_order_id', 'rejection_reason', 'raw_payment_sequential', 'raw_payment_installments', 'raw_payment_value'}),
     ),
     "sellers": DatasetConfig(
         required_columns=('seller_id', 'seller_zip_code_prefix', 'seller_city', 'seller_state'),
@@ -59,7 +60,7 @@ _DATASET_CONFIGS = {
         text_columns=('seller_zip_code_prefix', 'seller_city', 'seller_state'),
         key_columns=('seller_id',),
         duplicate_reason='duplicate_seller_id',
-        reserved_columns=frozenset({'rejection_reason'}),
+        reserved_columns=frozenset({'rejection_reason','raw_seller_id'}),
     ),
     "geolocation": DatasetConfig(
         required_columns=('geolocation_zip_code_prefix', 'geolocation_lat', 'geolocation_lng', 'geolocation_city', 'geolocation_state'),
@@ -75,31 +76,42 @@ _DATASET_CONFIGS = {
         reserved_columns=frozenset({'rejection_reason'}),
     ),
     "products": DatasetConfig(
-        required_columns=('product_id', 'product_category_name', 'product_weight_g', 'product_length_cm', 'product_height_cm', 'product_width_cm', 'product_name_lenght', 'product_description_lenght', 'product_photos_qty'),
+        required_columns=(
+            'product_id',
+            'product_category_name',
+            'product_weight_g',
+            'product_length_cm',
+            'product_height_cm',
+            'product_width_cm',
+            'product_name_lenght',
+            'product_description_lenght',
+            'product_photos_qty',
+        ),
         id_columns=('product_id',),
         key_columns=('product_id',),
         numeric_columns=('product_weight_g', 'product_length_cm', 'product_height_cm', 'product_width_cm', 'product_name_lenght', 'product_description_lenght', 'product_photos_qty'),
+        nullable_numeric_columns=('product_weight_g', 'product_length_cm', 'product_height_cm', 'product_width_cm', 'product_name_lenght', 'product_description_lenght', 'product_photos_qty'),
         duplicate_reason='duplicate_product_id',
-        reserved_columns=frozenset({'product_category_id', 'rejection_reason', 'raw_product_category_name', 'raw_product_weight_g', 'raw_product_length_cm', 'raw_product_height_cm', 'raw_product_width_cm', 'raw_product_name_lenght', 'raw_product_description_lenght', 'raw_product_photos_qty'}),
+        reserved_columns=frozenset({'product_category_id', 'rejection_reason', 'raw_product_id', 'raw_product_category_name', 'raw_product_weight_g', 'raw_product_length_cm', 'raw_product_height_cm', 'raw_product_width_cm', 'raw_product_name_lenght', 'raw_product_description_lenght', 'raw_product_photos_qty'}),
     ),
     "orders": DatasetConfig(
-        required_columns=('order_id', 'customer_id', 'order_status', 'order_purchase_timestamp', 'order_delivered_customer_date'),
+        required_columns=('order_id', 'customer_id', 'order_status', 'order_purchase_timestamp', 'order_approved_at', 'order_delivered_carrier_date', 'order_delivered_customer_date', 'order_estimated_delivery_date'),
         id_columns=('order_id', 'customer_id'),
-        date_columns=('order_purchase_timestamp', 'order_delivered_customer_date'),
-        reserved_columns=frozenset(('raw_order_delivered_customer_date', 'raw_order_purchase_timestamp', 'rejection_reason')),
+        date_columns=('order_purchase_timestamp', 'order_delivered_customer_date', 'order_approved_at', 'order_delivered_carrier_date', 'order_estimated_delivery_date'),
+        reserved_columns=frozenset(('raw_order_id', 'raw_customer_id', 'raw_order_delivered_customer_date', 'raw_order_purchase_timestamp', 'raw_order_approved_at', 'raw_order_delivered_carrier_date', 'raw_order_estimated_delivery_date', 'rejection_reason')),
         valid_statuses=frozenset(('approved', 'canceled', 'created', 'delivered', 'invoiced', 'processing', 'shipped', 'unavailable')),
         key_columns=('order_id',),
         duplicate_reason='duplicate_order_id',
     ),
     "order_items": DatasetConfig(
         required_columns=('order_id', 'order_item_id', 'product_id', 'seller_id', 'shipping_limit_date', 'price', 'freight_value'),
-        id_columns=('order_id', 'order_item_id', 'product_id', 'seller_id'),
+        id_columns=('order_id', 'product_id', 'seller_id'),
         text_columns=(),
         date_columns=('shipping_limit_date',),
-        numeric_columns=('price', 'freight_value'),
+        numeric_columns=('order_item_id', 'price', 'freight_value'),
         key_columns=('order_id', 'order_item_id'),
         duplicate_reason='duplicate_order_item_key',
-        reserved_columns=frozenset(('raw_freight_value', 'raw_price', 'raw_shipping_limit_date', 'rejection_reason')),
+        reserved_columns=frozenset(('raw_order_item_id', 'raw_order_id', 'raw_product_id', 'raw_seller_id', 'raw_freight_value', 'raw_price', 'raw_shipping_limit_date', 'rejection_reason')),
     ),
     "customers": DatasetConfig(
         required_columns=('customer_id', 'customer_unique_id', 'customer_zip_code_prefix', 'customer_city', 'customer_state'),
@@ -109,7 +121,7 @@ _DATASET_CONFIGS = {
         numeric_columns=(),
         key_columns=('customer_id',),
         duplicate_reason='duplicate_customer_id',
-        reserved_columns=frozenset({'rejection_reason'}),
+        reserved_columns=frozenset({'rejection_reason', 'raw_customer_id', 'raw_customer_unique_id'}),
     ),
 }
 

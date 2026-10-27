@@ -35,7 +35,7 @@ def create_table() -> list[str]:
         log_type="load",
     )
 
-    schema_file = PROJECT_ROOT / "sql" / "schma.sql"
+    schema_file = PROJECT_ROOT / "sql" / "schema.sql"
 
     try:
         if not schema_file.exists():
@@ -146,6 +146,28 @@ def load_dataframe(
             table_name,
         )
         raise
+
+def replace_geolocation(df: pd.DataFrame, chunk_size: int = 1000) -> None:
+    """Replace the current geolocation snapshot atomically, including empty input."""
+    expected = {"geolocation_id", "zip_code", "geolocation_lat", "geolocation_lng", "geolocation_city", "geolocation_state"}
+    if set(df.columns) != expected:
+        raise ValueError("Geolocation snapshot columns do not match the schema")
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    logger = get_logger(dataset_name="geolocation", log_type="load")
+    try:
+        with _get_engine().begin() as connection:
+            table = Table("geolocation", MetaData(), autoload_with=connection)
+            connection.execute(table.delete())
+            for start in range(0, len(df), chunk_size):
+                chunk = df.iloc[start:start + chunk_size]
+                records = chunk.astype(object).where(pd.notna(chunk), None).to_dict(orient="records")
+                connection.execute(table.insert(), records)
+        logger.info("Replaced geolocation with %s rows", len(df))
+    except Exception:
+        logger.exception("Failed to replace geolocation")
+        raise
+
 
 def upsert_dataframe(
     df: pd.DataFrame,

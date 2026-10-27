@@ -1,7 +1,16 @@
+from uuid import UUID
+
 import pandas as pd
+import pytest
 
 from src.configuration import get_dataset_config
 from src.transform import transform_products
+
+
+PRODUCT_A = "00000000000000000000000000000001"
+PRODUCT_B = "00000000000000000000000000000002"
+PRODUCT_C = "00000000000000000000000000000003"
+PRODUCT_D = "00000000000000000000000000000004"
 
 
 def product_frame(data):
@@ -12,9 +21,19 @@ def product_frame(data):
     return frame
 
 
+def test_products_require_all_source_columns():
+    products = pd.DataFrame({
+        "product_id": ["a"],
+        "product_category_name": ["books"],
+    })
+
+    with pytest.raises(ValueError, match="Missing columns"):
+        transform_products(products)
+
+
 def test_cleans_products_and_retains_category_names_without_mapping():
     products = product_frame({
-        "product_id": [" a ", "b"],
+        "product_id": [f" {PRODUCT_A} ", PRODUCT_B],
         "product_category_name": ["books", None],
         "product_weight_g": [" 12 ", "5"],
     })
@@ -22,7 +41,10 @@ def test_cleans_products_and_retains_category_names_without_mapping():
     original = products.copy(deep=True)
     clean, rejected = transform_products(products)
     assert rejected.empty
-    assert clean.product_id.tolist() == ["a", "b"]
+    assert clean.product_id.tolist() == [
+        str(UUID(PRODUCT_A)),
+        str(UUID(PRODUCT_B)),
+    ]
     assert clean.product_weight_g.tolist() == [12, 5]
     assert clean.product_category_name.iloc[0] == "books"
     assert pd.isna(clean.product_category_name.iloc[1])
@@ -33,16 +55,43 @@ def test_cleans_products_and_retains_category_names_without_mapping():
 
 def test_shared_rules_reject_invalid_missing_and_duplicate_values():
     products = product_frame({
-        "product_id": ["a", "b", "c", "d", "d", " "],
+        "product_id": [
+            PRODUCT_A,
+            PRODUCT_B,
+            PRODUCT_C,
+            PRODUCT_D,
+            str(UUID(PRODUCT_D)).upper(),
+            " ",
+        ],
         "product_category_name": ["books"] * 6,
         "product_weight_g": ["12", None, "bad", "2", "3", "4"],
     })
     clean, rejected = transform_products(products)
-    assert clean.product_id.tolist() == ["a"]
+    assert clean.product_id.tolist() == [
+        str(UUID(PRODUCT_A)),
+        str(UUID(PRODUCT_B)),
+    ]
+    assert pd.isna(clean.product_weight_g.iloc[1])
     assert rejected.rejection_reason.tolist() == [
-        "missing_product_weight_g", "invalid_product_weight_g",
+        "invalid_product_weight_g",
         "duplicate_product_id", "duplicate_product_id", "missing_product_id",
     ]
-    assert pd.isna(rejected.raw_product_weight_g.iloc[0])
-    assert rejected.raw_product_weight_g.iloc[1:].tolist() == ["bad", "2", "3", "4"]
+    assert rejected.raw_product_weight_g.tolist() == ["bad", "2", "3", "4"]
     assert len(clean) + len(rejected) == len(products)
+
+
+def test_all_product_numeric_columns_allow_null_and_blank_but_reject_invalid():
+    products = product_frame({
+        "product_id": [PRODUCT_A, PRODUCT_B, PRODUCT_C],
+        "product_category_name": [None] * 3,
+    })
+    for column in get_dataset_config("products").numeric_columns:
+        products[column] = [None, "  ", "invalid"]
+    clean, rejected = transform_products(products)
+    assert clean.product_id.tolist() == [
+        str(UUID(PRODUCT_A)),
+        str(UUID(PRODUCT_B)),
+    ]
+    for column in get_dataset_config("products").numeric_columns:
+        assert clean[column].isna().all()
+        assert f"invalid_{column}" in rejected.rejection_reason.iloc[0]

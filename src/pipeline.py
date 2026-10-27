@@ -5,7 +5,11 @@ import pandas as pd
 from src.logger import get_logger
 from src.configuration import get_dataset_config, get_dataset_paths
 from src.extract import extract_csv
-from src.validate import validate_product, validate_geolocation
+from src.validate import (
+    replace_with_retry,
+    validate_product,
+    validate_geolocation,
+)
 from src.transform import (
     transform_orders,
     transform_order_items,
@@ -17,7 +21,7 @@ from src.transform import (
     transform_order_payments,
     transform_order_reviews,
 )
-from src.load import create_table, upsert_dataframe
+from src.load import create_table, upsert_dataframe, replace_geolocation
 
 # Dataset order follows foreign key dependencies.
 TRANSFORMERS = {
@@ -38,7 +42,9 @@ VALIDATE_LIST = ("product_categories", "products", "geolocation")
 def _export_csv(df: pd.DataFrame, file_path: Path) -> None:
     file_path = Path(file_path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(file_path, index=False)
+    temporary = file_path.with_suffix(file_path.suffix + ".tmp")
+    df.to_csv(temporary, index=False)
+    replace_with_retry(temporary, file_path)
 
 
 def _cleaning_dataset(dataset: str) -> pd.DataFrame:
@@ -104,11 +110,14 @@ def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
     try:
         logger.info("Start loading dataset: %s", dataset)
         config = get_dataset_config(dataset)
-        upsert_dataframe(
-            df=clean_df,
-            table_name=dataset,
-            conflict_columns=("geolocation_id",) if dataset == "geolocation" else config.key_columns,
-        )
+        if dataset == "geolocation":
+            replace_geolocation(clean_df)
+        else:
+            upsert_dataframe(
+                df=clean_df,
+                table_name=dataset,
+                conflict_columns=config.key_columns,
+            )
 
         logger.info("Completed pipeline: %s", dataset)
     except Exception:
@@ -132,14 +141,6 @@ def main() -> None:
         if not dev_mode:
             create_table()
 
-        # ต้องทำตามลำดับ Foreign Key
-        order_items_df = None
-        for dataset in DATA_LIST:
-            clean_df = _cleaning_dataset(dataset)
-            if dataset == "order_items":
-                order_items_df = clean_df
-            elif not dev_mode:
-                _load_dataset(dataset, clean_df)
 
         for dataset in VALIDATE_LIST:
             _cleaning_dataset(dataset)
@@ -158,6 +159,15 @@ def main() -> None:
                     ),
                 )
                 _load_dataset(dataset, validated_df)
+
+                    # ต้องทำตามลำดับ Foreign Key
+            order_items_df = None
+            for dataset in DATA_LIST:
+                clean_df = _cleaning_dataset(dataset)
+                if dataset == "order_items":
+                    order_items_df = clean_df
+                elif not dev_mode:
+                    _load_dataset(dataset, clean_df)
 
             if order_items_df is not None:
                 _load_dataset("order_items", order_items_df)

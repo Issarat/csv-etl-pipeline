@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pandas as pd
@@ -5,6 +6,53 @@ import pandas as pd
 from src.configuration import DatasetConfig, get_dataset_config
 
 # region Data Transformation Functions
+Rules = dict[str, pd.Series]
+POSTGRES_INTEGER_MAX = 2_147_483_647
+RuleBuilder = Callable[
+    [pd.DataFrame, dict[str, pd.Series], DatasetConfig],
+    Rules,
+]
+
+
+def _get_rules_builder(dataset_name: str) -> RuleBuilder:
+    match dataset_name:
+        case "orders":
+            return _orders_rules
+        case _:
+            return _required_field_rules
+
+
+def _get_additional_rules(
+    dataset_name: str,
+    result: pd.DataFrame,
+    present: dict[str, pd.Series],
+    config: DatasetConfig,
+    rules: Rules,
+) -> Rules:
+    match dataset_name:
+        case "order_items":
+            return _order_items_rules(
+                result,
+                present,
+                rules,
+            )
+        case "order_payments":
+            return _order_payments_rules(
+                result,
+                present,
+                config,
+                rules,
+            )
+        case "order_reviews":
+            return _order_reviews_rules(
+                result,
+                present,
+                rules,
+            )
+        case _:
+            return rules
+
+
 def _prepare_data(df: pd.DataFrame, config: DatasetConfig) -> pd.DataFrame:
 
     #1. เช็คว่ามีคอลัมน์ ที่ set required_columns ว่าครบหรือไม่
@@ -55,7 +103,7 @@ def _orders_rules(
     config: DatasetConfig,
 ) -> dict[str, pd.Series]:
     
-    # Delivery date is optional. Preserve the existing reason names/order.
+    # Purchase date is required; other dates may be empty but must parse if given.
     result["order_status"] = (
         result["order_status"].astype("string").str.strip().str.lower()
     )
@@ -63,7 +111,7 @@ def _orders_rules(
     purchase = "order_purchase_timestamp"
     delivery = "order_delivered_customer_date"
 
-    return {
+    rules = {
         "missing_order_id": result["order_id"].fillna("").eq(""),
         "missing_customer_id": result["customer_id"].fillna("").eq(""),
         "invalid_status": ~result["order_status"].isin(config.valid_statuses),
@@ -71,6 +119,10 @@ def _orders_rules(
         "invalid_purchase_date": present[purchase] & result[purchase].isna(),
         "invalid_delivery_date": present[delivery] & result[delivery].isna(),
     }
+    for column in config.date_columns:
+        if column not in (purchase, delivery):
+            rules[f"invalid_{column}"] = present[column] & result[column].isna()
+    return rules
 
 def _required_field_rules(
     result: pd.DataFrame,
@@ -83,8 +135,99 @@ def _required_field_rules(
     }
 
     for column in config.date_columns + config.numeric_columns:
-        rules[f"missing_{column}"] = ~present[column]
+        if column not in config.nullable_numeric_columns:
+            rules[f"missing_{column}"] = ~present[column]
         rules[f"invalid_{column}"] = present[column] & result[column].isna()
+
+    return rules
+
+
+def _uuid_rules(
+    result: pd.DataFrame,
+    raw_values: pd.DataFrame,
+    config: DatasetConfig,
+    rules: Rules,
+) -> Rules:
+    for column in config.id_columns:
+        raw_values[column] = result[column].copy()
+        normalized = []
+        for value in result[column]:
+            try:
+                normalized.append(str(UUID(value)))
+            except (ValueError, TypeError, AttributeError):
+                normalized.append(pd.NA)
+
+        normalized_values = pd.Series(
+            normalized,
+            index=result.index,
+            dtype="string",
+        )
+        rules[f"invalid_{column}"] = (
+            result[column].fillna("").ne("")
+            & normalized_values.isna()
+        )
+        result[column] = normalized_values
+
+    return rules
+
+
+def _order_items_rules(
+    result: pd.DataFrame,
+    present: dict[str, pd.Series],
+    rules: Rules,
+) -> dict[str, pd.Series]:
+    #set floor data base
+    for column, minimum in (("order_item_id", 1), ("price", 0), ("freight_value", 0)):
+        invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
+        if column == "order_item_id":
+            invalid |= result[column].notna() & (
+                result[column].mod(1).ne(0)
+                | result[column].gt(POSTGRES_INTEGER_MAX)
+            )
+        rules[f"invalid_{column}"] |= present[column] & invalid
+
+    return rules
+
+def _order_payments_rules(
+    result: pd.DataFrame,
+    present: dict[str, pd.Series],
+    config: DatasetConfig,
+    rules: Rules,
+) -> dict[str, pd.Series]:
+    result["payment_type"] = (
+        result["payment_type"]
+        .astype("string")
+        .str.strip()
+        .str.lower()
+    )
+
+    has_payment_type = result["payment_type"].fillna("").ne("")
+
+    rules["invalid_payment_type"] = (
+        has_payment_type
+        & ~result["payment_type"].isin(config.valid_payment_types)
+    )
+    for column, minimum in (("payment_sequential", 1), ("payment_installments", 0), ("payment_value", 0)):
+        invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
+        if column != "payment_value":
+            invalid |= result[column].notna() & (
+                result[column].mod(1).ne(0)
+                | result[column].gt(POSTGRES_INTEGER_MAX)
+            )
+        rules[f"invalid_{column}"] |= present[column] & invalid
+
+    return rules
+
+
+def _order_reviews_rules(
+    result: pd.DataFrame,
+    present: dict[str, pd.Series],
+    rules: Rules,
+) -> Rules:
+    rules["invalid_review_score"] |= (
+        present["review_score"]
+        & ~result["review_score"].isin([1, 2, 3, 4, 5])
+    )
 
     return rules
 
@@ -118,27 +261,25 @@ def _transform_dataset(
     df: pd.DataFrame,
     dataset_name: str,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    
     config = get_dataset_config(dataset_name)
     result = _prepare_data(df, config)
     raw_values, present = _convert_values(result, config)
-    rule_builder = _orders_rules if dataset_name == "orders" else _required_field_rules
+    rule_builder = _get_rules_builder(dataset_name)
     rules = rule_builder(result, present, config)
-    if dataset_name == "order_reviews":
-        rules["invalid_review_score"] |= present["review_score"] & ~result["review_score"].isin([1, 2, 3, 4, 5])
-    if dataset_name == "order_payments":
-        result["payment_type"] = result["payment_type"].astype("string").str.strip().str.lower()
-        rules["invalid_payment_type"] = ~result["payment_type"].isin(config.valid_payment_types)
-        for column, minimum in (("payment_sequential", 1), ("payment_installments", 0), ("payment_value", 0)):
-            invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
-            if column != "payment_value":
-                invalid |= result[column].notna() & result[column].mod(1).ne(0)
-            rules[f"invalid_{column}"] |= present[column] & invalid
+    rules = _uuid_rules(result, raw_values, config, rules)
+    rules = _get_additional_rules(
+        dataset_name,
+        result,
+        present,
+        config,
+        rules,
+    )
+
     key_present = pd.Series(True, index=result.index)
 
     # ตรวจสอบว่ามีค่าใน key_columns ครบหรือไม่ และ เช็คว่ามีค่าใน key_columns ครบหรือไม่
     for column in config.key_columns:
-        key_present &= result[column].fillna("").ne("")
+        key_present &= result[column].astype("string").fillna("").ne("")
 
     # ตรวจสอบ duplicate key และเพิ่ม rejection reason
     if config.key_columns:
@@ -150,13 +291,15 @@ def _transform_dataset(
 # endregion
 
 def transform_orders(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Normalize orders; delivery dates may be empty but must parse if given."""
+    """Normalize orders; only purchase dates are required, but all dates must parse."""
     return _transform_dataset(df, "orders")
 
 
 def transform_order_items(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Reject all occurrences of duplicate (order_id, order_item_id) keys."""
-    return _transform_dataset(df, "order_items")
+    """Validate UUID references, positive integer item IDs, and nonnegative amounts."""
+    clean, rejected = _transform_dataset(df, "order_items")
+    clean["order_item_id"] = clean["order_item_id"].astype("int64")
+    return clean, rejected
 
 
 def transform_customers(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
