@@ -8,6 +8,7 @@ from src.configuration import DatasetConfig, get_dataset_config
 # region Data Transformation Functions
 Rules = dict[str, pd.Series]
 POSTGRES_INTEGER_MAX = 2_147_483_647
+POSTGRES_NUMBERIC_MAX = 10_000_000_000
 RuleBuilder = Callable[
     [pd.DataFrame, dict[str, pd.Series], DatasetConfig],
     Rules,
@@ -170,7 +171,6 @@ def _uuid_rules(
 
     return rules
 
-
 def _order_items_rules(
     result: pd.DataFrame,
     present: dict[str, pd.Series],
@@ -208,7 +208,8 @@ def _order_payments_rules(
         & ~result["payment_type"].isin(config.valid_payment_types)
     )
     for column, minimum in (("payment_sequential", 1), ("payment_installments", 0), ("payment_value", 0)):
-        invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
+        out_of_range = result[column].lt(minimum) if column != "payment_value" else (result[column].lt(minimum) | result[column].ge(POSTGRES_NUMBERIC_MAX))
+        invalid = out_of_range | result[column].isin([float("inf"), float("-inf")])
         if column != "payment_value":
             invalid |= result[column].notna() & (
                 result[column].mod(1).ne(0)

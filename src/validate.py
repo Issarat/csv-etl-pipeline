@@ -122,6 +122,7 @@ def validate_product() -> None:
             existing_ids = pd.to_numeric(categories[id_column], errors="raise").astype("Int64")
             if existing_ids.isna().any() or existing_ids.duplicated().any():
                 raise ValueError("Category mapping contains null or duplicate IDs")
+            
             categories[id_column] = existing_ids
             # Update translations by canonical name without changing existing IDs.
             latest_translations = latest_categories.set_index(name_column)[english_column]
