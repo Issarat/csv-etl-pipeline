@@ -179,7 +179,8 @@ def upsert_dataframe(
         dataset_name=table_name,
         log_type="load",
     )
-
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
     try:
         if df.empty:
             logger.warning(
