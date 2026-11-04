@@ -268,3 +268,20 @@ def test_overlong_geolocation_state_is_rejected():
     "invalid_geolocation_state"
     ]
     assert len(clean) + len(rejected) == len(df)
+
+def test_geolocation_trims_zip_and_state_before_length_validation():
+    df = pd.DataFrame({
+        "geolocation_zip_code_prefix": [" 01001 "],
+        "geolocation_lat": [13.76],
+        "geolocation_lng": [100.50],
+        "geolocation_city": ["city"],
+        "geolocation_state": [" SP "],
+    })
+
+    original = df.copy(deep=True)
+    clean, rejected = transform.transform_geolocation(df)
+    assert len(clean) == 1 
+    assert rejected.empty
+    assert clean["geolocation_zip_code_prefix"].tolist() == ["01001"]
+    assert clean["geolocation_state"].tolist() == ["SP"]
+    pd.testing.assert_frame_equal(df, original)
