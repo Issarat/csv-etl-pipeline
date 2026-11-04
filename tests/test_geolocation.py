@@ -212,3 +212,25 @@ def test_valid_geolocation_is_allowed(lat, lng):
     assert clean["geolocation_lat"].tolist() == [lat]
     assert clean["geolocation_lng"].tolist() == [lng]
 
+def test_geolocation_separates_valid_and_invalid_rows():
+    df = pd.DataFrame({
+        "geolocation_zip_code_prefix": ["01001", "01002", "01003"],
+        "geolocation_lat": [13.76, 91, 13.76],
+        "geolocation_lng": [100.50, 100.50, -181],
+        "geolocation_city": ["A", "B", "C"],
+        "geolocation_state": ["SP", "SP", "SP"],
+    })
+    original = df.copy(deep=True)
+
+    clean, rejected = transform.transform_geolocation(df)
+
+    assert len(clean) == 1
+    assert len(rejected) == 2
+    assert len(clean) + len(rejected) == len(original)
+
+    assert rejected["rejection_reason"].tolist() == [
+        "invalid_geolocation_lat","invalid_geolocation_lng"
+    ]
+    assert clean["geolocation_city"].tolist() == ["A"]
+    assert rejected["geolocation_city"].tolist() == ["B", "C"]
+    pd.testing.assert_frame_equal(df, original)
