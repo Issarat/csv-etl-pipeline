@@ -50,6 +50,12 @@ def _get_additional_rules(
                 present,
                 rules,
             )
+        case "geolocation":
+            return _geolocation_rules(
+                        result,
+                        present,
+                        rules,
+                    )
         case _:
             return rules
 
@@ -219,7 +225,6 @@ def _order_payments_rules(
 
     return rules
 
-
 def _order_reviews_rules(
     result: pd.DataFrame,
     present: dict[str, pd.Series],
@@ -229,6 +234,17 @@ def _order_reviews_rules(
         present["review_score"]
         & ~result["review_score"].isin([1, 2, 3, 4, 5])
     )
+
+    return rules
+
+def _geolocation_rules(
+    result: pd.DataFrame,
+    present: dict[str, pd.Series],
+    rules: Rules,
+) -> Rules:
+    for column, minimum, maximun in (("geolocation_lat", -90, 90), ("geolocation_lng", -180, 180)):
+            invalid = result[column].lt(minimum) | result[column].gt(maximun)
+            rules[f"invalid_{column}"] |= present[column] & invalid
 
     return rules
 
