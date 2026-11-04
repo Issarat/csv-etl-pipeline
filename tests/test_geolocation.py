@@ -234,3 +234,37 @@ def test_geolocation_separates_valid_and_invalid_rows():
     assert clean["geolocation_city"].tolist() == ["A"]
     assert rejected["geolocation_city"].tolist() == ["B", "C"]
     pd.testing.assert_frame_equal(df, original)
+
+def test_overlong_geolocation_zip_is_rejected():
+    df = pd.DataFrame({
+        "geolocation_zip_code_prefix": ["010010"],
+        "geolocation_lat": [13.76],
+        "geolocation_lng": [100.50],
+        "geolocation_city": ["city"],
+        "geolocation_state": ["SP"],
+    })
+
+    clean, rejected = transform.transform_geolocation(df)
+    assert clean.empty
+    assert len(rejected) ==1
+    assert rejected["rejection_reason"].tolist() == [
+    "invalid_geolocation_zip_code_prefix"
+    ]
+    assert len(clean) + len(rejected) == len(df)
+
+def test_overlong_geolocation_state_is_rejected():
+    df = pd.DataFrame({
+        "geolocation_zip_code_prefix": ["01001"],
+        "geolocation_lat": [13.76],
+        "geolocation_lng": [100.50],
+        "geolocation_city": ["city"],
+        "geolocation_state": ["SPX"],
+    })
+
+    clean, rejected = transform.transform_geolocation(df)
+    assert clean.empty
+    assert len(rejected) == 1
+    assert rejected["rejection_reason"].tolist() == [
+    "invalid_geolocation_state"
+    ]
+    assert len(clean) + len(rejected) == len(df)

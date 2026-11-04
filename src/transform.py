@@ -246,6 +246,9 @@ def _geolocation_rules(
             invalid = result[column].lt(minimum) | result[column].gt(maximun)
             rules[f"invalid_{column}"] |= present[column] & invalid
 
+    rules[f"invalid_geolocation_zip_code_prefix"] =  (result["geolocation_zip_code_prefix"].str.len().gt(5).fillna(False))
+    rules[f"invalid_geolocation_state"] =  (result["geolocation_state"].str.len().gt(2).fillna(False))
+
     return rules
 
 def _split_records(
