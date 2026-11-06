@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pandas as pd
-
+from decimal import Decimal
 from src.logger import get_logger
 from src.configuration import get_dataset_config, get_dataset_paths
 from src.extract import extract_csv
@@ -11,6 +11,7 @@ from src.validate import (
     validate_geolocation,
 )
 from src.transform import (
+    NUMBERIC_COLUMNS,
     transform_orders,
     transform_order_items,
     transform_customers,
@@ -57,7 +58,18 @@ def _cleaning_dataset(dataset: str) -> pd.DataFrame:
         logger.info("Start cleaning pipeline: %s", dataset)
         paths = get_dataset_paths(dataset)
         config = get_dataset_config(dataset)
-        text_columns = config.id_columns + config.text_columns + config.optional_text_columns
+        numberic_columns = tuple(
+            column
+            for column in config.numeric_columns
+            if column in NUMBERIC_COLUMNS
+        )
+
+        text_columns = (
+            config.id_columns
+            + config.text_columns
+            + config.optional_text_columns
+            + numberic_columns
+        )
         
         # Extract
         df = extract_csv(
@@ -103,7 +115,6 @@ def _cleaning_dataset(dataset: str) -> pd.DataFrame:
         logger.exception("Failed cleaning pipeline: %s", dataset)
         raise
 
-
 def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
     """Load already cleaned records into PostgreSQL."""
     logger = get_logger(dataset_name=dataset, log_type="pipeline")
@@ -124,41 +135,60 @@ def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
         logger.exception("Failed pipeline: %s", dataset)
         raise
 
-dev_mode = True
-
 def main() -> None:
     pipeline_logger = get_logger(
         dataset_name="main",
         log_type="pipeline",
     )
-
     try:
         pipeline_logger.info(
             "Starting ETL pipeline"
         )
 
         # สร้างตารางจาก schma.sql
-        if not dev_mode:
-            create_table()
-
+        create_table()
 
         for dataset in VALIDATE_LIST:
             _cleaning_dataset(dataset)
         validate_product()
         validate_geolocation()
 
-        if not dev_mode:
-            for dataset in VALIDATE_LIST:
-                validated_path = get_dataset_paths(dataset)["validated"]
-                validated_df = extract_csv(
-                    str(validated_path),
-                    dtype=(
-                        {"geolocation_id": "Int64", "zip_code": "string"}
-                        if dataset == "geolocation"
-                        else {"product_category_id": "Int64"}
-                    ),
+        for dataset in VALIDATE_LIST:
+            config = get_dataset_config(dataset)
+            paths = get_dataset_paths(dataset)
+
+            numberic_columns = tuple(
+                column
+                for column in config.numeric_columns
+                if column in NUMBERIC_COLUMNS
+            )
+
+            dtype = {
+                column: "string"
+                for column in numberic_columns
+            }
+
+            if dataset == "geolocation":
+                dtype.update({
+                    "geolocation_id": "Int64",
+                    "zip_code": "string",
+                })
+            else:
+                dtype["product_category_id"] = "Int64"
+
+            validated_df = extract_csv(
+                str(paths["validated"]),
+                dtype=dtype,
+            )
+
+            for column in numberic_columns:
+                validated_df[column] = validated_df[column].map(
+                    lambda value: (
+                        None if pd.isna(value) else Decimal(value)
+                    )
                 )
-                _load_dataset(dataset, validated_df)
+
+            _load_dataset(dataset, validated_df)
 
         # ต้องทำตามลำดับ Foreign Key
         order_items_df = None
@@ -166,10 +196,10 @@ def main() -> None:
             clean_df = _cleaning_dataset(dataset)
             if dataset == "order_items":
                 order_items_df = clean_df
-            elif not dev_mode:
+            else:
                 _load_dataset(dataset, clean_df)
-
-        if order_items_df is not None and not dev_mode: 
+  
+        if order_items_df is not None: 
             _load_dataset("order_items", order_items_df)
 
         pipeline_logger.info(

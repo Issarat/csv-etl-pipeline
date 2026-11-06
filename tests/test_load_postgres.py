@@ -6,7 +6,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from uuid import uuid4
 from src import load
-
+from sqlalchemy.exc import IntegrityError
+from decimal import Decimal
+from src.transform import transform_products
 
 @pytest.fixture
 def postgres_engine():
@@ -33,7 +35,7 @@ def test_connects_to_test_database(postgres_engine):
 
     assert database == "olist_test"
 
-
+#region customer
 @pytest.fixture
 def customer_table(postgres_engine, monkeypatch):
     table_name = f"test_customers_{uuid4().hex}"
@@ -133,9 +135,6 @@ def test_customer_upsert_updates_existing_row(
             ).one()
     assert tuple(row) == ("01001", "campinas", "SP")
 
-from sqlalchemy.exc import IntegrityError
-
-
 def test_customer_upsert_rolls_back_when_later_chunk_fails(
     postgres_engine,
     customer_table,
@@ -171,3 +170,144 @@ def test_customer_upsert_rolls_back_when_later_chunk_fails(
         ).scalar_one()
 
     assert row_count == 0
+#endregion
+
+#region products
+@pytest.fixture
+def product_table(postgres_engine, monkeypatch):
+    table_name = f"test_products_{uuid4().hex}"
+
+    with postgres_engine.begin() as connection:
+        connection.execute(text(f"""
+            CREATE TABLE "{table_name}" (
+                product_id UUID PRIMARY KEY,
+                product_weight_g NUMERIC(12, 2)
+            )
+        """))
+
+    monkeypatch.setattr(
+        load,
+        "_get_engine",
+        lambda: postgres_engine,
+    )
+
+    try:
+        yield table_name
+    finally:
+        with postgres_engine.begin() as connection:
+            connection.execute(
+                text(f'DROP TABLE "{table_name}"')
+            )
+
+def test_product_weight_rounding_is_preserved_in_postgres(
+    postgres_engine,
+    product_table,
+):
+    df = pd.DataFrame([{
+            "product_id": "00000000000000000000000000000021",
+            "product_category_name": "books",
+            "product_weight_g": "1.125",
+            "product_length_cm": None,
+            "product_height_cm": None,
+            "product_width_cm": None,
+            "product_name_lenght": None,
+            "product_description_lenght": None,
+            "product_photos_qty": None,
+        }])
+    clean, rejected = transform_products(df)
+
+    assert rejected.empty
+    assert clean["product_weight_g"].tolist() == [Decimal("1.13")]
+
+    load.upsert_dataframe(
+        df=clean[["product_id", "product_weight_g"]],
+        table_name=product_table,
+        conflict_columns=("product_id",)
+    )
+    with postgres_engine.connect() as connection:
+        weight = connection.execute(
+            text(f'''
+                SELECT product_weight_g
+                FROM "{product_table}"
+            ''')
+        ).scalar_one()
+
+    assert isinstance(weight, Decimal)
+    assert weight == Decimal("1.13")
+
+def test_product_upsert_rolls_back_when_later_chunk_fails(
+    postgres_engine,
+    product_table,
+):
+    df = pd.DataFrame([
+        {
+            "product_id": "00000000000000000000000000000021",
+            "product_weight_g": Decimal("1.13"),
+        },
+        {
+            "product_id": None,
+            "product_weight_g": Decimal("2.00"),
+        },
+    ])
+    with pytest.raises(IntegrityError):
+        load.upsert_dataframe(
+            df=df,
+            table_name=product_table,
+            conflict_columns=("product_id",),
+            chunk_size=1,
+        )
+    with postgres_engine.connect() as connection:
+        row_count = connection.execute(
+            text(f'SELECT COUNT(*) FROM "{product_table}"')
+        ).scalar_one()
+
+    assert row_count == 0
+
+def test_product_upsert_preserves_existing_row_when_later_chunk_fails(
+    postgres_engine,
+    product_table,
+):
+    df = pd.DataFrame([
+        {
+            "product_id": "00000000000000000000000000000021",
+            "product_weight_g": Decimal("5.00"),
+        }
+    ])
+    load.upsert_dataframe(
+        df=df,
+        table_name=product_table,
+        conflict_columns=("product_id",)
+    )
+
+    df = pd.DataFrame([
+        {
+            "product_id": "00000000000000000000000000000021",
+            "product_weight_g": Decimal("1.13"),
+        },
+        {
+            "product_id": None,
+            "product_weight_g": Decimal("2.00"),
+        },
+    ])
+    with pytest.raises(IntegrityError):
+        load.upsert_dataframe(
+            df=df,
+            table_name=product_table,
+            conflict_columns=("product_id",),
+            chunk_size=1,
+        )
+    with postgres_engine.connect() as connection:
+        row_count = connection.execute(
+            text(f'SELECT COUNT(*) FROM "{product_table}"')
+        ).scalar_one()
+    with postgres_engine.connect() as connection:
+        weight = connection.execute(
+            text(f'''
+                SELECT product_weight_g
+                FROM "{product_table}"
+            ''')
+        ).scalar_one()
+    assert row_count == 1
+    assert isinstance(weight, Decimal)
+    assert weight == Decimal("5.00")
+#ensregion

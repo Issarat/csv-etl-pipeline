@@ -2,9 +2,9 @@ from uuid import UUID
 
 import pandas as pd
 import pytest
+from decimal import Decimal
 
 from src.transform import transform_order_items
-
 
 def item_frame():
     return pd.DataFrame([{
@@ -51,7 +51,7 @@ def test_invalid_integer_item_id_is_rejected(value):
 
 
 @pytest.mark.parametrize("column", ["price", "freight_value"])
-@pytest.mark.parametrize("value", ["-0.01", "inf", "-inf", "bad", 10000000000 , 9999999999.999])
+@pytest.mark.parametrize("value", ["-0.01", "inf", "-inf", "bad", 10000000000 , 9999999999.999, 1e100, -1e100])
 def test_invalid_amount_is_rejected(column, value):
     df = item_frame()
     df[column] = value
@@ -72,9 +72,11 @@ def test_duplicate_keys_are_detected_after_uuid_and_integer_normalization():
 @pytest.mark.parametrize(
     "value, expected",
     [
-        (12.346, 12.35),
-        (12.344, 12.34),
-        (9999999999.99, 9999999999.99),
+        ("12.344", Decimal("12.34")),
+        ("12.346", Decimal("12.35")),
+        ("1.125", Decimal("1.13")),
+        ("0", Decimal("0.00")),
+        ("9999999999.99", Decimal("9999999999.99")),
     ],
 )
 def test_valid_amount_is_rounded_and_allowed(column, value, expected):

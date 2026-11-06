@@ -101,7 +101,14 @@ def validate_product() -> None:
         raise FileNotFoundError(f"Clean dataset file does not exist: {clean_path}")
 
     try:
-        df = pd.read_csv(clean_path)
+        dtypes_dict = {
+            'product_weight_g': 'str',        
+            'product_length_cm': 'str',          
+            'product_width_cm': 'str',         
+            'product_height_cm': 'str'       
+        }
+        df = pd.read_csv(clean_path,
+                         dtype= dtypes_dict)
         logger.info("Loaded clean dataset with %d rows and %d columns.", len(df), len(df.columns))
 
         name_column = "product_category_name"
