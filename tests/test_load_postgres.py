@@ -109,9 +109,16 @@ def test_customer_upsert_updates_existing_row(
             "customer_id": CUSTOMER_ID,
             "customer_unique_id": CUSTOMER_UNIQUE_ID,
             "customer_zip_code_prefix": "01001",
-            "customer_city": "campinas",
+            "customer_city": "sao paulo",
             "customer_state": "SP",
     }])
+    load.upsert_dataframe(
+            df=df,
+            table_name=customer_table,
+            conflict_columns=("customer_id",),
+    )
+
+    df["customer_city"] = "campinas"
     load.upsert_dataframe(
             df=df,
             table_name=customer_table,
