@@ -56,6 +56,21 @@ def _get_additional_rules(
                         present,
                         rules,
                     )
+        case "customers":
+            return _customers_rules(
+                        result,
+                        rules,
+                    )
+        case "sellers":
+                return _sellers_rules(
+                            result,
+                            rules,
+                            )
+        case "products":
+            return _products_rules(
+                        result,
+                        present,
+                        rules)
         case _:
             return rules
 
@@ -184,7 +199,8 @@ def _order_items_rules(
 ) -> dict[str, pd.Series]:
     #set floor data base
     for column, minimum in (("order_item_id", 1), ("price", 0), ("freight_value", 0)):
-        invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
+        out_of_range = result[column].lt(minimum) if column != "price" else (result[column].lt(minimum) | result[column].round(2).ge(POSTGRES_NUMBERIC_MAX))
+        invalid = out_of_range | result[column].isin([float("inf"), float("-inf")])
         if column == "order_item_id":
             invalid |= result[column].notna() & (
                 result[column].mod(1).ne(0)
@@ -214,7 +230,7 @@ def _order_payments_rules(
         & ~result["payment_type"].isin(config.valid_payment_types)
     )
     for column, minimum in (("payment_sequential", 1), ("payment_installments", 0), ("payment_value", 0)):
-        out_of_range = result[column].lt(minimum) if column != "payment_value" else (result[column].lt(minimum) | result[column].ge(POSTGRES_NUMBERIC_MAX))
+        out_of_range = result[column].lt(minimum) if column != "payment_value" else (result[column].lt(minimum) | result[column].round(2).ge(POSTGRES_NUMBERIC_MAX))
         invalid = out_of_range | result[column].isin([float("inf"), float("-inf")])
         if column != "payment_value":
             invalid |= result[column].notna() & (
@@ -250,6 +266,47 @@ def _geolocation_rules(
     rules[f"invalid_geolocation_state"] =  (result["geolocation_state"].str.len().gt(2).fillna(False))
 
     return rules
+
+def _customers_rules(
+    result: pd.DataFrame,
+    rules: Rules,
+) -> Rules:
+    rules[f"invalid_customer_zip_code_prefix"] =  (result["customer_zip_code_prefix"].str.len().gt(5).fillna(False))
+    rules[f"invalid_customer_state"] =  (result["customer_state"].str.len().gt(2).fillna(False))
+
+    return rules
+
+def _sellers_rules(
+    result: pd.DataFrame,
+    rules: Rules,
+) -> Rules:
+    rules[f"invalid_seller_zip_code_prefix"] =  (result["seller_zip_code_prefix"].str.len().gt(5).fillna(False))
+    rules[f"invalid_seller_state"] =  (result["seller_state"].str.len().gt(2).fillna(False))
+
+    return rules
+
+def _products_rules(
+    result: pd.DataFrame,
+    present: dict[str, pd.Series],
+    rules: Rules,
+) -> dict[str, pd.Series]:
+    numeric_columns = ["product_weight_g", "product_length_cm", "product_width_cm", "product_height_cm"]
+    for column, minimum in (("product_photos_qty", 0), ("product_name_lenght", 0), ("product_description_lenght",0), ("product_weight_g", 0), ("product_length_cm", 0), ("product_width_cm", 0), ("product_height_cm", 0)):
+        is_numberic =  column in numeric_columns
+
+        out_of_range = result[column].lt(minimum) if not is_numberic else (result[column].lt(minimum) | result[column].round(2).ge(POSTGRES_NUMBERIC_MAX))
+        invalid = out_of_range | result[column].isin([float("inf"), float("-inf")])
+        if not is_numberic:
+            invalid |= result[column].notna() & (
+                result[column].mod(1).ne(0)
+                | result[column].gt(POSTGRES_INTEGER_MAX)
+            )
+        rules[f"invalid_{column}"] |= present[column] & invalid
+        if is_numberic:
+            result[column] = result[column].round(2)
+
+    return rules
+
 
 def _split_records(
     result: pd.DataFrame,
