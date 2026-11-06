@@ -197,9 +197,10 @@ def _order_items_rules(
     present: dict[str, pd.Series],
     rules: Rules,
 ) -> dict[str, pd.Series]:
-    #set floor data base
+    numeric_columns = ["price", "freight_value"]
     for column, minimum in (("order_item_id", 1), ("price", 0), ("freight_value", 0)):
-        out_of_range = result[column].lt(minimum) if column != "price" else (result[column].lt(minimum) | result[column].round(2).ge(POSTGRES_NUMBERIC_MAX))
+        is_numberic =  column in numeric_columns
+        out_of_range = result[column].lt(minimum) if not is_numberic else (result[column].lt(minimum) | result[column].round(2).ge(POSTGRES_NUMBERIC_MAX))
         invalid = out_of_range | result[column].isin([float("inf"), float("-inf")])
         if column == "order_item_id":
             invalid |= result[column].notna() & (
@@ -207,6 +208,8 @@ def _order_items_rules(
                 | result[column].gt(POSTGRES_INTEGER_MAX)
             )
         rules[f"invalid_{column}"] |= present[column] & invalid
+        if is_numberic:
+            result[column] = result[column].round(2)
 
     return rules
 

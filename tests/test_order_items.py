@@ -51,7 +51,7 @@ def test_invalid_integer_item_id_is_rejected(value):
 
 
 @pytest.mark.parametrize("column", ["price", "freight_value"])
-@pytest.mark.parametrize("value", ["-0.01", "inf", "-inf", "bad"])
+@pytest.mark.parametrize("value", ["-0.01", "inf", "-inf", "bad", 10000000000 , 9999999999.999])
 def test_invalid_amount_is_rejected(column, value):
     df = item_frame()
     df[column] = value
@@ -67,3 +67,22 @@ def test_duplicate_keys_are_detected_after_uuid_and_integer_normalization():
     clean, rejected = transform_order_items(df)
     assert clean.empty
     assert rejected.rejection_reason.tolist() == ["duplicate_order_item_key"] * 2
+
+@pytest.mark.parametrize("column", ["price", "freight_value"])
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (12.346, 12.35),
+        (12.344, 12.34),
+        (9999999999.99, 9999999999.99),
+    ],
+)
+def test_valid_amount_is_rounded_and_allowed(column, value, expected):
+    df = item_frame()
+    df[column] = value
+    clean, rejected = transform_order_items(df)
+    assert len(clean) == 1
+    assert rejected.empty
+    assert len(clean) + len(rejected) == len(df)
+    assert clean[column].tolist() == [expected]
+
