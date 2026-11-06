@@ -91,3 +91,4 @@ def test_overlong_state_is_rejected(transformer, frame_factory, column):
     assert len(rejected) == 1
     assert len(clean) + len(rejected) == len(frame)
 
+    
