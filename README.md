@@ -26,17 +26,17 @@ setting is `False`.
 
 ## Supported datasets
 
-| Dataset | Cleaning and output behavior | Upsert conflict key |
-| --- | --- | --- |
-| `customers` | Trim IDs and text; preserve ZIP as string | `customer_id` |
-| `sellers` | Retain all four source columns; preserve ZIP as string | `seller_id` |
-| `orders` | Normalize status; convert purchase/delivery dates | `order_id` |
-| `order_payments` | Normalize payment type; validate amounts/installments; generate UUID | `order_id`, `payment_sequential` |
-| `order_reviews` | Rename review ID; validate scores/dates; allow null comments | `order_review_id`, `order_id` |
-| `order_items` | Convert dates/numbers; validate composite key | `order_id`, `order_item_id` |
-| `product_categories` | Clean canonical names; assign IDs during validation | `product_category_name` |
-| `products` | Convert numeric fields; map category names during validation | `product_id` |
-| `geolocation` | Preserve ZIP string; convert coordinates; assign IDs during validation | `geolocation_id` |
+| Dataset              | Cleaning and output behavior                                           | Upsert conflict key              |
+| -------------------- | ---------------------------------------------------------------------- | -------------------------------- |
+| `customers`          | Trim IDs and text; preserve ZIP as string                              | `customer_id`                    |
+| `sellers`            | Retain all four source columns; preserve ZIP as string                 | `seller_id`                      |
+| `orders`             | Normalize status; convert purchase/delivery dates                      | `order_id`                       |
+| `order_payments`     | Normalize payment type; validate amounts/installments; generate UUID   | `order_id`, `payment_sequential` |
+| `order_reviews`      | Rename review ID; validate scores/dates; allow null comments           | `order_review_id`, `order_id`    |
+| `order_items`        | Convert dates/numbers; validate composite key                          | `order_id`, `order_item_id`      |
+| `product_categories` | Clean canonical names; assign IDs during validation                    | `product_category_name`          |
+| `products`           | Convert numeric fields; map category names during validation           | `product_id`                     |
+| `geolocation`        | Preserve ZIP string; convert coordinates; assign IDs during validation | `geolocation_id`                 |
 
 ## Pipeline flow
 
@@ -71,15 +71,16 @@ customers -> sellers -> orders -> order_payments -> order_reviews
 Each table load is transactional. The whole pipeline is not one transaction.
 Upserts update supplied non-key columns; they do not remove rows absent from
 subsequent input files.
+
 ## Files and folders
 
 Paths are configured in `src/configuration.py`.
 
-| Stage | Standard datasets | Product categories |
-| --- | --- | --- |
-| Raw | `data/raw/olist_<dataset>_dataset.csv` | `data/raw/product_categories.csv` |
-| Clean | `data/clean/olist_<dataset>_clean.csv` | `data/clean/product_categories_clean.csv` |
-| Rejected | `data/rejected/olist_<dataset>_rejected.csv` | `data/rejected/product_categories_rejected.csv` |
+| Stage     | Standard datasets                             | Product categories                               |
+| --------- | --------------------------------------------- | ------------------------------------------------ |
+| Raw       | `data/raw/olist_<dataset>_dataset.csv`        | `data/raw/product_categories.csv`                |
+| Clean     | `data/clean/olist_<dataset>_clean.csv`        | `data/clean/product_categories_clean.csv`        |
+| Rejected  | `data/rejected/olist_<dataset>_rejected.csv`  | `data/rejected/product_categories_rejected.csv`  |
 | Validated | `data/validate/olist_<dataset>_validated.csv` | `data/validate/product_categories_validated.csv` |
 
 Only products, product categories, and geolocation currently have a separate
@@ -142,14 +143,14 @@ docker compose exec postgres psql -U etl_user -d olist -c "\dt"
 
 `sql/schma.sql` defines nine tables. Foreign keys are:
 
-| Child column | Parent column |
-| --- | --- |
-| `orders.customer_id` | `customers.customer_id` |
-| `order_items.order_id` | `orders.order_id` |
-| `order_items.product_id` | `products.product_id` |
-| `order_items.seller_id` | `sellers.seller_id` |
-| `order_payments.order_id` | `orders.order_id` |
-| `order_reviews.order_id` | `orders.order_id` |
+| Child column                   | Parent column                            |
+| ------------------------------ | ---------------------------------------- |
+| `orders.customer_id`           | `customers.customer_id`                  |
+| `order_items.order_id`         | `orders.order_id`                        |
+| `order_items.product_id`       | `products.product_id`                    |
+| `order_items.seller_id`        | `sellers.seller_id`                      |
+| `order_payments.order_id`      | `orders.order_id`                        |
+| `order_reviews.order_id`       | `orders.order_id`                        |
 | `products.product_category_id` | `product_categories.product_category_id` |
 
 Source entity IDs are stored as UUIDs. Category IDs are integers generated by
@@ -185,7 +186,6 @@ cleaning; database integration is not covered by the pytest suite.
 
 ## Troubleshooting
 
-- No Docker: keep `dev_mode = True` for cleaning and validation only.
 - Connection failure: verify `DATABASE_URL`, PostgreSQL availability, and port.
 - Foreign-key failure: confirm referenced records survived cleaning and were
   loaded. Load ordering cannot resolve references to rejected parent rows.
