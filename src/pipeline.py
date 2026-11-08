@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List, Tuple
 import pandas as pd
+from uuid import uuid4
 from decimal import Decimal
 from src.logger import get_logger
 from src.configuration import get_dataset_config, get_dataset_paths
@@ -169,12 +170,34 @@ def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
         logger.exception("Failed pipeline: %s", dataset)
         raise
 
+
 def main() -> None:
     pipeline_logger = get_logger(
         dataset_name="main",
         log_type="pipeline",
     )
+    def load_with_status(dataset: str, df: pd.DataFrame) -> None:
+        pipeline_logger.info(
+            "run_id=%s dataset=%s status=LOAD_STARTED rows=%d",
+            run_id, dataset, len(df),
+        )
+
+        try:
+            _load_dataset(dataset, df)
+        except Exception:
+            pipeline_logger.error(
+                "run_id=%s dataset=%s status=LOAD_FAILED",
+                run_id, dataset,
+            )
+            raise
+
+        pipeline_logger.info(
+            "run_id=%s dataset=%s status=LOAD_SUCCEEDED",
+            run_id, dataset,
+        )
     try:
+        run_id = uuid4().hex
+        pipeline_logger.info("run_id=%s status=STARTED", run_id)
         pipeline_logger.info(
             "Starting ETL pipeline"
         )
@@ -234,7 +257,7 @@ def main() -> None:
                 validated_df["product_category_id"] = category_ids
                 validated_df = validated_df.drop(columns=["product_category_name"])
             
-            _load_dataset(dataset, validated_df)
+            load_with_status(dataset, validated_df)
 
         # ต้องทำตามลำดับ Foreign Key
         order_items_df = None
@@ -243,19 +266,18 @@ def main() -> None:
             if dataset == "order_items":
                 order_items_df = clean_df
             else:
-                _load_dataset(dataset, clean_df)
+                load_with_status(dataset, clean_df)
   
         if order_items_df is not None: 
-            _load_dataset("order_items", order_items_df)
+            load_with_status("order_items", order_items_df)
         
         pipeline_logger.info(
             "ETL pipeline completed successfully"
         )
 
+        pipeline_logger.info("run_id=%s status=SUCCEEDED", run_id)
     except Exception:
-        pipeline_logger.exception(
-            "ETL pipeline failed"
-        )
+        pipeline_logger.exception("run_id=%s status=FAILED", run_id)
         raise
 
 if __name__ == "__main__":

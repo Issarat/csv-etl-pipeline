@@ -453,5 +453,111 @@ def test_main_loads_products_with_existing_postgres_category_id(
         scoped_engine.dispose()
         with postgres_engine.begin() as connection:
             connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+            
+def test_pipeline_rerun_recovers_after_order_items_failure(
+    postgres_engine,
+    monkeypatch,
+):
+    schema = f"test_rerun_{uuid4().hex}"
+    customer_id, seller_id, product_id, order_id = (
+        str(uuid4()) for _ in range(4)
+    )
 
+    datasets = {
+        "customers": pd.DataFrame([{"customer_id": customer_id}]),
+        "sellers": pd.DataFrame([{"seller_id": seller_id}]),
+        "orders": pd.DataFrame([{
+            "order_id": order_id,
+            "customer_id": customer_id,
+        }]),
+        "order_items": pd.DataFrame([{
+            "order_id": order_id,
+            "order_item_id": 1,
+            "product_id": product_id,
+            "seller_id": seller_id,
+        }]),
+    }
+
+    with postgres_engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+
+    scoped_engine = create_engine(
+        postgres_engine.url,
+        connect_args={"options": f"-c search_path={schema}"},
+    )
+
+    try:
+        with scoped_engine.begin() as connection:
+            for ddl in (
+                "CREATE TABLE customers (customer_id UUID PRIMARY KEY)",
+                "CREATE TABLE sellers (seller_id UUID PRIMARY KEY)",
+                "CREATE TABLE products (product_id UUID PRIMARY KEY)",
+                """
+                CREATE TABLE orders (
+                    order_id UUID PRIMARY KEY,
+                    customer_id UUID NOT NULL REFERENCES customers(customer_id)
+                )
+                """,
+                """
+                CREATE TABLE order_items (
+                    order_id UUID NOT NULL REFERENCES orders(order_id),
+                    order_item_id INTEGER NOT NULL,
+                    product_id UUID NOT NULL REFERENCES products(product_id),
+                    seller_id UUID NOT NULL REFERENCES sellers(seller_id),
+                    PRIMARY KEY (order_id, order_item_id)
+                )
+                """,
+            ):
+                connection.execute(text(ddl))
+
+            connection.execute(
+                text("INSERT INTO products VALUES (CAST(:id AS uuid))"),
+                {"id": product_id},
+            )
+
+        monkeypatch.setattr(load, "_get_engine", lambda: scoped_engine)
+        monkeypatch.setattr(load, "get_logger", Mock(return_value=Mock()))
+        monkeypatch.setattr(pipeline, "get_logger", Mock(return_value=Mock()))
+        monkeypatch.setattr(pipeline, "create_table", Mock())
+        monkeypatch.setattr(pipeline, "validate_product", Mock())
+        monkeypatch.setattr(pipeline, "validate_geolocation", Mock())
+        monkeypatch.setattr(pipeline, "VALIDATE_LIST", ())
+        monkeypatch.setattr(pipeline, "DATA_LIST", tuple(datasets))
+        monkeypatch.setattr(
+            pipeline, "_cleaning_dataset", lambda name: datasets[name].copy()
+        )
+
+        original_load_dataset = pipeline._load_dataset
+
+        def fail_on_order_items(dataset, df):
+            if dataset == "order_items":
+                raise RuntimeError("simulated order_items load failure")
+            original_load_dataset(dataset, df)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(pipeline, "_load_dataset", fail_on_order_items)
+            with pytest.raises(RuntimeError, match="simulated order_items load failure"):
+                pipeline.main()
+
+        with scoped_engine.connect() as connection:
+            assert connection.execute(text("SELECT COUNT(*) FROM orders")).scalar_one() == 1
+            assert connection.execute(text("SELECT COUNT(*) FROM order_items")).scalar_one() == 0
+
+        # รันซ้ำบน schema เดิมหลังคืน loader จริง
+        pipeline.main()
+
+        with scoped_engine.connect() as connection:
+            assert connection.execute(text("SELECT COUNT(*) FROM orders")).scalar_one() == 1
+            item = connection.execute(text("""
+                SELECT order_id, order_item_id, product_id, seller_id
+                FROM order_items
+            """)).one()
+
+        assert (str(item.order_id), item.order_item_id) == (order_id, 1)
+        assert str(item.product_id) == product_id
+        assert str(item.seller_id) == seller_id
+    finally:
+        scoped_engine.dispose()
+        with postgres_engine.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
 #endregion
