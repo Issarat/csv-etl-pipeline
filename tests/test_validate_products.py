@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from src import validate
+from pathlib import Path
 
 
 @pytest.fixture
@@ -90,3 +91,36 @@ def test_ambiguous_latest_translation_does_not_overwrite_outputs(files):
         validate.validate_product()
     assert category_paths["validated"].read_bytes() == before
     assert not files["products"]["validated"].exists()
+
+def test_category_csv_write_failure_preserves_existing_output(files, monkeypatch):
+    category_paths = files["product_categories"]
+    output = category_paths["validated"]
+
+    pd.DataFrame({
+        "product_category_id": [42],
+        "product_category_name": ["livros"],
+        "product_category_name_english": ["books"],
+    }).to_csv(output, index=False)
+
+    pd.DataFrame({
+        "product_category_name": ["livros"],
+        "product_category_name_english": ["new_books"],
+    }).to_csv(category_paths["clean"], index=False)
+
+    pd.DataFrame({
+        "product_id": ["a"],
+        "product_category_name": ["livros"],
+    }).to_csv(files["products"]["clean"], index=False)
+
+    original_content = output.read_bytes()
+
+    def fail_after_partial_write(self, path, *args, **kwargs):
+        Path(path).write_text("partial CSV", encoding="utf-8")
+        raise OSError("simulated CSV write failure")
+
+    monkeypatch.setattr(pd.DataFrame, "to_csv", fail_after_partial_write)
+
+    with pytest.raises(OSError, match="simulated CSV write failure"):
+        validate.validate_product()
+
+    assert output.read_bytes() == original_content

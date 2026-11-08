@@ -194,17 +194,21 @@ def validate_product() -> None:
             )
             categories = pd.concat([categories, new_categories], ignore_index=True)
 
-        # Ensure the output directory exists
+        ## white files
         validated_path.parent.mkdir(parents=True, exist_ok=True)
 
         category_path.parent.mkdir(parents=True, exist_ok=True)
-        categories.to_csv(category_path, index=False)
+        category_temp = category_path.with_suffix(category_path.suffix + ".tmp")
+        categories.to_csv(category_temp, index=False)
+        replace_with_retry(category_temp, category_path)
+
         logger.info("Saved validated categories to: %s", category_path)
         if unknown.any():
             logger.info("Added %d product categories to: %s", len(new_names), category_path)
 
-        # Save a separate output without overwriting the clean dataset
-        df.to_csv(validated_path, index=False)
+        product_temp = validated_path.with_suffix(validated_path.suffix + ".tmp")
+        df.to_csv(product_temp, index=False)
+        replace_with_retry(product_temp, validated_path)
         logger.info("Successfully validated dataset to: %s", validated_path)
 
     except Exception as e:
