@@ -6,7 +6,11 @@ from filelock import FileLock
 
 from src import pipeline
 
-def test_main_uses_database_category_id_for_products(monkeypatch):
+def test_main_uses_database_category_id_for_products(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        pipeline, "PIPELINE_LOCK_PATH", tmp_path / ".pipeline.lock"
+    )
+
     categories = pd.DataFrame({
         "product_category_name": ["livros"],
         "product_category_name_english": ["books"],
