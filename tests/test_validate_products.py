@@ -43,9 +43,11 @@ def test_merge_latest_translations_and_categories_preserves_ids_and_reruns(files
     }
     assert categories.loc["livros", "product_category_name_english"] == "books"
     assert categories.loc["brinquedos", "product_category_name_english"] == "new_toys"
-    assert products.product_category_id.dropna().tolist() == [42, 8, 43, 19, 44]
-    assert pd.isna(products.product_category_id.iloc[-1])
-    assert "product_category_name" not in products
+    assert products["product_category_name"].dropna().tolist() == [
+        "livros", "brinquedos", "roupas", "legacy", "unknown",
+        ]
+    assert pd.isna(products["product_category_name"].iloc[-1])
+    assert "product_category_id" not in products.columns
     before = category_paths["validated"].read_bytes()
     validate.validate_product()
     assert category_paths["validated"].read_bytes() == before

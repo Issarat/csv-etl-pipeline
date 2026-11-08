@@ -174,13 +174,11 @@ def validate_product() -> None:
 
         if id_column not in categories:
             categories.insert(0, id_column, range(1, len(categories) + 1))
+        
         ids = pd.to_numeric(categories[id_column], errors="raise").astype("Int64")
 
         if ids.isna().any() or ids.duplicated().any():
             raise ValueError("Category mapping contains null or duplicate IDs")
-        
-        mapping = pd.Series(ids.array, index=names)
-        product_ids = canonical_names.map(mapping).astype("Int64")
 
         if unknown.any():
             new_names = sorted(product_names[unknown].unique())
@@ -195,14 +193,6 @@ def validate_product() -> None:
                 }
             )
             categories = pd.concat([categories, new_categories], ignore_index=True)
-            mapping = pd.Series(
-                categories[id_column].astype("Int64").array,
-                index=categories[name_column].astype("string").str.strip(),
-            )
-            product_ids = canonical_names.map(mapping).astype("Int64")
-        
-        df.insert(df.columns.get_loc(name_column), id_column, product_ids)
-        df = df.drop(columns=name_column)
 
         # Ensure the output directory exists
         validated_path.parent.mkdir(parents=True, exist_ok=True)

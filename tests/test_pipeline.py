@@ -1,0 +1,68 @@
+from unittest.mock import Mock
+
+import pandas as pd
+import pytest
+
+from src import pipeline
+
+
+def test_main_uses_database_category_id_for_products(monkeypatch):
+    categories = pd.DataFrame({
+        "product_category_id": [1],
+        "product_category_name": ["livros"],
+    })
+    products = pd.DataFrame({
+        "product_category_name": ["livros"],
+        "product_weight_g": ["1.13"],
+        "product_length_cm": [None],
+        "product_width_cm": [None],
+        "product_height_cm": [None],
+    })
+
+    monkeypatch.setattr(pipeline, "get_logger", Mock(return_value=Mock()))
+    monkeypatch.setattr(pipeline, "create_table", Mock())
+    monkeypatch.setattr(pipeline, "_cleaning_dataset", Mock())
+    monkeypatch.setattr(pipeline, "validate_product", Mock())
+    monkeypatch.setattr(pipeline, "validate_geolocation", Mock())
+    monkeypatch.setattr(pipeline, "DATA_LIST", ())
+    monkeypatch.setattr(
+        pipeline, "VALIDATE_LIST", ("product_categories", "products")
+    )
+    monkeypatch.setattr(
+        pipeline, "extract_csv", Mock(side_effect=[categories, products])
+    )
+    monkeypatch.setattr(
+        pipeline, "read_product_category_mapping", Mock(return_value={"livros": 42})
+    )
+
+    load_dataset = Mock()
+    monkeypatch.setattr(pipeline, "_load_dataset", load_dataset)
+
+    pipeline.main()
+
+    category_call, product_call = load_dataset.call_args_list
+    category_dataset, loaded_categories = category_call.args
+    product_dataset, loaded_products = product_call.args
+
+    assert (category_dataset, product_dataset) == ("product_categories", "products")
+    assert "product_category_id" not in loaded_categories.columns
+    assert loaded_products["product_category_id"].tolist() == [42]
+
+def test_load_orders_stops_before_upsert_when_customer_is_missing(monkeypatch):
+    orders = pd.DataFrame({
+        "customer_id": ["A", "B", "B"],
+    })
+
+    check_customers = Mock(return_value={"B"})
+    upsert = Mock()
+
+    monkeypatch.setattr(pipeline, "get_logger", Mock(return_value=Mock()))
+    monkeypatch.setattr(pipeline, "check_exist_customer_id", check_customers)
+    monkeypatch.setattr(pipeline, "upsert_dataframe", upsert)
+
+    with pytest.raises(ValueError, match="Orders reference missing customers") as error:
+        pipeline._load_dataset("orders", orders)
+
+    assert "1 missing IDs, 2 affected orders" in str(error.value)
+    check_customers.assert_called_once()
+    upsert.assert_not_called()

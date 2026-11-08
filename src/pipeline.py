@@ -22,7 +22,7 @@ from src.transform import (
     transform_order_payments,
     transform_order_reviews,
 )
-from src.load import create_table, upsert_dataframe, replace_geolocation
+from src.load import create_table, upsert_dataframe, replace_geolocation, read_product_category_mapping,check_exist_customer_id
 
 # Dataset order follows foreign key dependencies.
 TRANSFORMERS = {
@@ -124,6 +124,19 @@ def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
         if dataset == "geolocation":
             replace_geolocation(clean_df)
         else:
+            if dataset == "orders" and not clean_df.empty:
+                missing_customer_ids = check_exist_customer_id(clean_df)
+
+                if missing_customer_ids:
+                    affected_orders = clean_df["customer_id"].isin(missing_customer_ids).sum()
+                    examples = sorted(missing_customer_ids)[:5]
+
+                    raise ValueError(
+                        f"Orders reference missing customers: "
+                        f"{len(missing_customer_ids)} missing IDs, "
+                        f"{affected_orders} affected orders. Examples: {examples}"
+                    )
+                
             upsert_dataframe(
                 df=clean_df,
                 table_name=dataset,
@@ -173,9 +186,11 @@ def main() -> None:
                     "geolocation_id": "Int64",
                     "zip_code": "string",
                 })
+            elif dataset == "products":
+                dtype["product_category_name"] = "string"
             else:
                 dtype["product_category_id"] = "Int64"
-
+            
             validated_df = extract_csv(
                 str(paths["validated"]),
                 dtype=dtype,
@@ -187,7 +202,21 @@ def main() -> None:
                         None if pd.isna(value) else Decimal(value)
                     )
                 )
+            if dataset == "product_categories":
+                validated_df = validated_df.drop(columns=["product_category_id"])
+            elif dataset == "products":
+                names = validated_df["product_category_name"]
+                mapping = read_product_category_mapping()
+                category_ids = names.map(mapping).astype("Int64")
 
+                missing = names.notna() & category_ids.isna()
+                if missing.any():
+                    unknown_names = sorted(names[missing].unique())
+                    raise ValueError(f"Categories missing in PostgreSQL: {unknown_names}")
+
+                validated_df["product_category_id"] = category_ids
+                validated_df = validated_df.drop(columns=["product_category_name"])
+            
             _load_dataset(dataset, validated_df)
 
         # ต้องทำตามลำดับ Foreign Key
@@ -201,7 +230,7 @@ def main() -> None:
   
         if order_items_df is not None: 
             _load_dataset("order_items", order_items_df)
-
+        
         pipeline_logger.info(
             "ETL pipeline completed successfully"
         )
