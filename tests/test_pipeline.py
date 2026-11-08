@@ -2,6 +2,7 @@ from unittest.mock import Mock, call
 
 import pandas as pd
 import pytest
+from filelock import FileLock
 
 from src import pipeline
 
@@ -95,3 +96,23 @@ def test_load_order_items_stops_before_upsert_when_seller_is_missing(monkeypatch
         call(items, table_name="sellers", column_name="seller_id"),
     ]
     upsert.assert_not_called()
+
+def test_main_rejects_overlapping_run_and_can_run_after_unlock(
+    tmp_path, monkeypatch
+):
+    lock_path = tmp_path / ".pipeline.lock"
+    run_pipeline = Mock()
+
+    monkeypatch.setattr(pipeline, "PIPELINE_LOCK_PATH", lock_path)
+    monkeypatch.setattr(pipeline, "_run_pipeline", run_pipeline)
+
+    with FileLock(str(lock_path)):
+        with pytest.raises(
+            RuntimeError, match="Another pipeline run is already in progress"
+        ):
+            pipeline.main()
+
+        run_pipeline.assert_not_called()
+
+    pipeline.main()
+    run_pipeline.assert_called_once_with()

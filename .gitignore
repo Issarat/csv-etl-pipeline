@@ -28,6 +28,7 @@ dist/
 /data/rejected/
 /data/validate/
 /logs/
+.pipeline.lock
 
 # Local editor settings
 /.obsidian/

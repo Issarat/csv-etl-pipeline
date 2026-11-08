@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import List, Tuple
 import pandas as pd
 from uuid import uuid4
+from filelock import FileLock, Timeout
 from decimal import Decimal
 from src.logger import get_logger
 from src.configuration import get_dataset_config, get_dataset_paths
@@ -41,6 +42,7 @@ TRANSFORMERS = {
 DATA_LIST = ("customers", "sellers", "orders", "order_payments", "order_reviews", "order_items")
 VALIDATE_LIST = ("product_categories", "products", "geolocation")
 CHECK_MISSING_DATA = ("orders","order_payments","order_reviews","order_items")
+PIPELINE_LOCK_PATH = Path(__file__).resolve().parents[1] / ".pipeline.lock"
 
 
 def _export_csv(df: pd.DataFrame, file_path: Path) -> None:
@@ -206,7 +208,7 @@ def valid_decimal_type(dataset: str) -> pd.DataFrame:
         )
     return df
 
-def main() -> None:
+def _run_pipeline() -> None:
     pipeline_logger = get_logger(
         dataset_name="main",
         log_type="pipeline",
@@ -233,7 +235,7 @@ def main() -> None:
     try:
         run_id = uuid4().hex
         pipeline_logger.info("run_id=%s status=STARTED", run_id)
-        
+
         # สร้างตารางจาก schma.sql
         create_table()
 
@@ -276,6 +278,21 @@ def main() -> None:
     except Exception:
         pipeline_logger.exception("run_id=%s status=FAILED", run_id)
         raise
+
+def main() -> None:
+    lock = FileLock(str(PIPELINE_LOCK_PATH))
+
+    try:
+        lock.acquire(timeout=0)
+    except Timeout as exc:
+        raise RuntimeError(
+            "Another pipeline run is already in progress."
+        ) from exc
+
+    try:
+        _run_pipeline()
+    finally:
+        lock.release()
 
 if __name__ == "__main__":
     main()
