@@ -166,11 +166,12 @@ def replace_geolocation(df: pd.DataFrame, chunk_size: int = 1000) -> None:
         logger.exception("Failed to replace geolocation")
         raise
 
-def check_exist_customer_id(
+def find_missing_reference_ids(
     df: pd.DataFrame, 
     chunk_size: int = 1000,
+    table_name: str = "",
+    column_name: str = ""
 ) -> set[str]:
-    table_name = "customers"
     logger = get_logger(
         dataset_name= table_name,
         log_type="check_exits",
@@ -185,13 +186,13 @@ def check_exist_customer_id(
             )
             return set()
         
-        customer_ids = tuple(df["customer_id"].tolist())
+        customer_ids = tuple(df[column_name].tolist())
         chunks = [customer_ids[i:i + chunk_size] for i in range(0, len(customer_ids), chunk_size)]
 
-        query = text("""
-                SELECT customer_id
-                FROM customers
-                WHERE customer_id IN :ids
+        query = text(f"""
+                SELECT {column_name}
+                FROM {table_name}
+                WHERE {column_name} IN :ids
             """).bindparams(bindparam("ids", expanding=True))
 
         existing_ids: set[str] = set()

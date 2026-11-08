@@ -203,9 +203,14 @@ def test_check_exist_customer_id_finds_missing_id_across_chunks(
         engine.connect.return_value = nullcontext(connection)
         monkeypatch.setattr(load, "_get_engine", lambda: engine)
 
-        missing_ids = load.check_exist_customer_id(orders, chunk_size=1)
-
+        missing_ids = load.find_missing_reference_ids(
+            orders,
+            chunk_size=1,
+            table_name="customers",
+            column_name="customer_id",
+        )
         assert missing_ids == {customer_b}
+
 #endregion
 
 #region products

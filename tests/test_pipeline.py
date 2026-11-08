@@ -49,20 +49,24 @@ def test_main_uses_database_category_id_for_products(monkeypatch):
     assert loaded_products["product_category_id"].tolist() == [42]
 
 def test_load_orders_stops_before_upsert_when_customer_is_missing(monkeypatch):
-    orders = pd.DataFrame({
-        "customer_id": ["A", "B", "B"],
-    })
-
+    orders = pd.DataFrame({"customer_id": ["A", "B", "B"]})
     check_customers = Mock(return_value={"B"})
     upsert = Mock()
 
     monkeypatch.setattr(pipeline, "get_logger", Mock(return_value=Mock()))
-    monkeypatch.setattr(pipeline, "check_exist_customer_id", check_customers)
+    monkeypatch.setattr(pipeline, "find_missing_reference_ids", check_customers)
     monkeypatch.setattr(pipeline, "upsert_dataframe", upsert)
 
-    with pytest.raises(ValueError, match="Orders reference missing customers") as error:
+    with pytest.raises(ValueError) as error:
         pipeline._load_dataset("orders", orders)
 
-    assert "1 missing IDs, 2 affected orders" in str(error.value)
-    check_customers.assert_called_once()
+    message = str(error.value)
+    assert "orders.customer_id references missing customers" in message
+    assert "1 missing IDs, 2 affected orders" in message
+    check_customers.assert_called_once_with(
+        orders,
+        table_name="customers",
+        column_name="customer_id",
+    )
     upsert.assert_not_called()
+    

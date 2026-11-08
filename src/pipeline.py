@@ -1,5 +1,5 @@
 from pathlib import Path
-
+from typing import List, Tuple
 import pandas as pd
 from decimal import Decimal
 from src.logger import get_logger
@@ -22,7 +22,7 @@ from src.transform import (
     transform_order_payments,
     transform_order_reviews,
 )
-from src.load import create_table, upsert_dataframe, replace_geolocation, read_product_category_mapping,check_exist_customer_id
+from src.load import create_table, upsert_dataframe, replace_geolocation, read_product_category_mapping,find_missing_reference_ids
 
 # Dataset order follows foreign key dependencies.
 TRANSFORMERS = {
@@ -39,6 +39,8 @@ TRANSFORMERS = {
 
 DATA_LIST = ("customers", "sellers", "orders", "order_payments", "order_reviews", "order_items")
 VALIDATE_LIST = ("product_categories", "products", "geolocation")
+CHECK_MISSING_DATA = ("orders","order_payments","order_reviews","order_items")
+
 
 def _export_csv(df: pd.DataFrame, file_path: Path) -> None:
     file_path = Path(file_path)
@@ -115,6 +117,24 @@ def _cleaning_dataset(dataset: str) -> pd.DataFrame:
         logger.exception("Failed cleaning pipeline: %s", dataset)
         raise
 
+def _get_data_missing_check(dataset: str) -> List[Tuple[str, str]]:
+    match dataset:
+        case "orders":
+            return [("customers", "customer_id")]
+            
+        case "order_payments" | "order_reviews":
+            return [("orders", "order_id")]
+            
+        case "order_items":
+            return [
+                ("orders", "order_id"), 
+                ("products", "product_id"), 
+                ("sellers", "seller_id")
+            ]
+        
+        case _: 
+            return []
+        
 def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
     """Load already cleaned records into PostgreSQL."""
     logger = get_logger(dataset_name=dataset, log_type="pipeline")
@@ -124,18 +144,19 @@ def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
         if dataset == "geolocation":
             replace_geolocation(clean_df)
         else:
-            if dataset == "orders" and not clean_df.empty:
-                missing_customer_ids = check_exist_customer_id(clean_df)
+            if dataset in CHECK_MISSING_DATA and not clean_df.empty:
+                dependencies = _get_data_missing_check(dataset)
+                for target_table, foreign_key in dependencies:
+                    missing_ids = find_missing_reference_ids(clean_df, table_name=target_table, column_name=foreign_key)
+                    if missing_ids:
+                        affected_orders = clean_df[foreign_key].isin(missing_ids).sum()
+                        examples = sorted(missing_ids)[:5]
 
-                if missing_customer_ids:
-                    affected_orders = clean_df["customer_id"].isin(missing_customer_ids).sum()
-                    examples = sorted(missing_customer_ids)[:5]
-
-                    raise ValueError(
-                        f"Orders reference missing customers: "
-                        f"{len(missing_customer_ids)} missing IDs, "
-                        f"{affected_orders} affected orders. Examples: {examples}"
-                    )
+                        raise ValueError(
+                            f"{dataset}.{foreign_key} references missing {target_table}: "
+                            f"{len(missing_ids)} missing IDs, "
+                            f"{affected_orders} affected {dataset}. Examples: {examples}"
+                        )
                 
             upsert_dataframe(
                 df=clean_df,
