@@ -170,6 +170,41 @@ def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
         logger.exception("Failed pipeline: %s", dataset)
         raise
 
+def valid_decimal_type(dataset: str) -> pd.DataFrame:
+    config = get_dataset_config(dataset)
+    paths = get_dataset_paths(dataset)
+
+    numberic_columns = tuple(
+        column
+        for column in config.numeric_columns
+        if column in NUMBERIC_COLUMNS
+    )
+
+    dtype = {
+        column: "string"
+        for column in numberic_columns
+    }
+
+    if dataset == "geolocation":
+        dtype.update({
+            "geolocation_id": "Int64",
+            "zip_code": "string",
+        })
+    elif dataset == "products":
+        dtype["product_category_name"] = "string"
+    
+    df = extract_csv(
+        str(paths["validated"]),
+        dtype=dtype,
+    )
+
+    for column in numberic_columns:
+        df[column] = df[column].map(
+            lambda value: (
+                None if pd.isna(value) else Decimal(value)
+            )
+        )
+    return df
 
 def main() -> None:
     pipeline_logger = get_logger(
@@ -198,10 +233,7 @@ def main() -> None:
     try:
         run_id = uuid4().hex
         pipeline_logger.info("run_id=%s status=STARTED", run_id)
-        pipeline_logger.info(
-            "Starting ETL pipeline"
-        )
-
+        
         # สร้างตารางจาก schma.sql
         create_table()
 
@@ -211,39 +243,8 @@ def main() -> None:
         validate_geolocation()
 
         for dataset in VALIDATE_LIST:
-            config = get_dataset_config(dataset)
-            paths = get_dataset_paths(dataset)
+            validated_df = valid_decimal_type(dataset=dataset)
 
-            numberic_columns = tuple(
-                column
-                for column in config.numeric_columns
-                if column in NUMBERIC_COLUMNS
-            )
-
-            dtype = {
-                column: "string"
-                for column in numberic_columns
-            }
-
-            if dataset == "geolocation":
-                dtype.update({
-                    "geolocation_id": "Int64",
-                    "zip_code": "string",
-                })
-            elif dataset == "products":
-                dtype["product_category_name"] = "string"
-            
-            validated_df = extract_csv(
-                str(paths["validated"]),
-                dtype=dtype,
-            )
-
-            for column in numberic_columns:
-                validated_df[column] = validated_df[column].map(
-                    lambda value: (
-                        None if pd.isna(value) else Decimal(value)
-                    )
-                )
             if dataset == "products":
                 names = validated_df["product_category_name"]
                 mapping = read_product_category_mapping()
@@ -271,10 +272,6 @@ def main() -> None:
         if order_items_df is not None: 
             load_with_status("order_items", order_items_df)
         
-        pipeline_logger.info(
-            "ETL pipeline completed successfully"
-        )
-
         pipeline_logger.info("run_id=%s status=SUCCEEDED", run_id)
     except Exception:
         pipeline_logger.exception("run_id=%s status=FAILED", run_id)
