@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "README.md",
+                "file": "docs/setup.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "README"
+              "title": "setup"
             }
           }
         ]
@@ -190,6 +190,9 @@
   },
   "active": "4fc96190c0d69b3c",
   "lastOpenFiles": [
+    "setup_project.bash",
+    "install.bash",
+    "README.md",
     "tests/__pycache__/test_customer_seller_uuid.cpython-314-pytest-9.1.1.pyc",
     "tests/test_customer_seller_uuid.py",
     "logs/profiling/sellers.log",
@@ -199,10 +202,7 @@
     "logs/profiling/order_payments.log",
     "logs/profiling/products.log",
     "logs/profiling",
-    "src/__pycache__/profiling.cpython-314.pyc",
-    "data/validate/olist_geolocation_validated.csv",
     "docs/er-diagram.md",
-    "README.md",
     "docs/setup.md"
   ]
 }
