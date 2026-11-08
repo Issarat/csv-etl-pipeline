@@ -6,10 +6,9 @@ import pandas as pd
 import psycopg
 from dotenv import load_dotenv
 from psycopg import ClientCursor
-from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy import MetaData, Table
+from sqlalchemy import create_engine, MetaData, Table, text, bindparam
 
 from src.logger import get_logger
 
@@ -148,7 +147,6 @@ def load_dataframe(
         raise
 
 def replace_geolocation(df: pd.DataFrame, chunk_size: int = 1000) -> None:
-    """Replace the current geolocation snapshot atomically, including empty input."""
     expected = {"geolocation_id", "zip_code", "geolocation_lat", "geolocation_lng", "geolocation_city", "geolocation_state"}
     if set(df.columns) != expected:
         raise ValueError("Geolocation snapshot columns do not match the schema")
@@ -168,6 +166,67 @@ def replace_geolocation(df: pd.DataFrame, chunk_size: int = 1000) -> None:
         logger.exception("Failed to replace geolocation")
         raise
 
+def find_missing_reference_ids(
+    df: pd.DataFrame, 
+    chunk_size: int = 1000,
+    table_name: str = "",
+    column_name: str = ""
+) -> set[str]:
+    logger = get_logger(
+        dataset_name= table_name,
+        log_type="check_exits",
+    )
+    try:
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+        if df.empty:
+            logger.warning(
+                "ไม่ได้โหลดข้อมูล: DataFrame ของ %s ไม่มีข้อมูล",
+                table_name,
+            )
+            return set()
+        
+        reference_ids = tuple(df[column_name].unique())
+        chunks = [
+            reference_ids[i:i + chunk_size]
+            for i in range(0, len(reference_ids), chunk_size)
+        ]
+
+        query = text(f"""
+                SELECT {column_name}
+                FROM {table_name}
+                WHERE {column_name} IN :ids
+            """).bindparams(bindparam("ids", expanding=True))
+
+        existing_ids: set[str] = set()
+
+        with _get_engine().connect() as connection:
+            for chunk in chunks:
+                rows = connection.execute(query, {"ids": chunk}).scalars()
+                existing_ids.update(str(value) for value in rows)
+
+        return set(reference_ids) - existing_ids
+    except SQLAlchemyError:
+        logger.exception(
+            "Database error while loading table %s",
+            table_name,
+        )
+        raise
+
+    except (ValueError, TypeError):
+        logger.exception(
+            "Invalid data while loading table %s",
+            table_name,
+        )
+        raise
+
+def read_product_category_mapping() -> dict[str, int]:
+    with _get_engine().connect() as connection:
+        rows = connection.execute(text("""
+            SELECT product_category_name, product_category_id
+            FROM product_categories
+        """))
+        return {name: category_id for name, category_id in rows}
 
 def upsert_dataframe(
     df: pd.DataFrame,
@@ -179,7 +238,8 @@ def upsert_dataframe(
         dataset_name=table_name,
         log_type="load",
     )
-
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
     try:
         if df.empty:
             logger.warning(
@@ -217,7 +277,7 @@ def upsert_dataframe(
                 )
 
                 statement = insert(table).values(records)
-
+                
                 update_values = {
                     column:
                     statement.excluded[column]

@@ -2,6 +2,7 @@ from uuid import UUID
 
 import pandas as pd
 import pytest
+from decimal import Decimal
 
 from src.configuration import get_dataset_config
 from src.transform import transform_products
@@ -95,3 +96,96 @@ def test_all_product_numeric_columns_allow_null_and_blank_but_reject_invalid():
     for column in get_dataset_config("products").numeric_columns:
         assert clean[column].isna().all()
         assert f"invalid_{column}" in rejected.rejection_reason.iloc[0]
+
+@pytest.mark.parametrize(
+    "value",
+    [-0.001, -1, 9999999999.999, 10000000001, float("inf"), float("-inf"), 1e100, -1e100],
+)
+
+def test_out_of_range_product_weight_g_is_rejected(value):
+    df = product_frame({
+        "product_id": [PRODUCT_A],
+        "product_category_name": ["books"],
+        "product_weight_g": [value],
+    })
+    clean, rejected = transform_products(df)
+    assert clean.empty
+    assert rejected["rejection_reason"].tolist() == ["invalid_product_weight_g"]
+    assert len(rejected) == 1
+    assert rejected["raw_product_weight_g"].tolist() == [value]
+    assert len(clean) + len(rejected) == len(df)
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        ("12.344", Decimal("12.34")),
+        ("12.346", Decimal("12.35")),
+        ("1.125", Decimal("1.13")),
+        ("0", Decimal("0.00")),
+        ("9999999999.99", Decimal("9999999999.99")),
+    ],
+)
+def test_product_weight_is_rounded_to_two_decimal_places(value, expected):
+    df = product_frame({
+        "product_id": [PRODUCT_A],
+        "product_category_name": ["books"],
+        "product_weight_g": [value],
+    })
+    original = df.copy(deep=True)
+    clean, rejected = transform_products(df)
+
+    assert len(clean) == 1
+    assert rejected.empty
+    assert len(clean) + len(rejected) == len(df)
+    assert clean["product_weight_g"].tolist() == [expected]
+    pd.testing.assert_frame_equal(df, original)
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        "product_photos_qty",
+        "product_name_lenght",
+        "product_description_lenght",
+    ],
+)
+@pytest.mark.parametrize("value", [1.5, 2147483648])    
+def test_invalid_product_integer_is_rejected(column, value):
+    df = product_frame({
+        "product_id": [PRODUCT_A],
+        "product_category_name": ["books"],
+        column: [value],
+    })
+    original = df.copy(deep=True)
+    clean, rejected = transform_products(df)
+
+    assert clean.empty
+    assert len(rejected) == 1
+    assert len(clean) + len(rejected) == len(df)
+    assert rejected["rejection_reason"].tolist() == [f"invalid_{column}"]
+    assert rejected[f"raw_{column}"].tolist() == [value]
+    pd.testing.assert_frame_equal(df, original)
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        "product_photos_qty",
+        "product_name_lenght",
+        "product_description_lenght",
+    ],
+)
+@pytest.mark.parametrize(
+    "value",
+    [0, 2147483647],
+)
+def test_valid_product_integer_is_allowed(column, value):
+    df = product_frame({
+        "product_id": [PRODUCT_A],
+        "product_category_name": ["books"],
+        column: [value],
+    })
+    clean, rejected = transform_products(df)
+
+    assert len(clean) == 1
+    assert rejected.empty
+    assert len(clean) + len(rejected) == len(df)
+    assert clean[column].tolist() == [value]

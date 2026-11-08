@@ -2,6 +2,7 @@ from uuid import UUID
 
 import pandas as pd
 import pytest
+from decimal import Decimal
 
 from src.transform import transform_order_payments
 
@@ -118,3 +119,43 @@ def test_payment_type_is_normalized_before_validation():
     assert len(clean) == 1
     assert rejected.empty
     assert clean["payment_type"].tolist() == ["credit_card"]
+
+@pytest.mark.parametrize(
+    "value",
+    [-1, 10000000000, 10000000001, 1e100, -1e100],
+)
+def test_out_of_range_payment_value_is_rejected(value):
+    df = payment_frame([VALID_ORDER])
+    df["payment_value"] = value
+
+    clean, rejected = transform_order_payments(df)
+
+    assert clean.empty
+    assert len(rejected) == 1
+    assert rejected["rejection_reason"].tolist() == [
+        "invalid_payment_value"
+    ]
+    assert rejected["raw_payment_value"].tolist() == [value]
+    assert len(clean) + len(rejected) == len(df)
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        ("12.344", Decimal("12.34")),
+        ("12.346", Decimal("12.35")),
+        ("1.125", Decimal("1.13")),
+        ("0", Decimal("0.00")),
+        ("9999999999.99", Decimal("9999999999.99")),
+    ],
+)
+def test_valid_payment_value_is_allowed(value,expected):
+    df = payment_frame([VALID_ORDER])
+    df["payment_value"] = value
+
+    clean, rejected = transform_order_payments(df)
+
+    assert len(clean) == 1
+    assert rejected.empty
+    
+    assert clean["payment_value"].tolist() == [expected]
+ 

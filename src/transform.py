@@ -2,17 +2,52 @@ from collections.abc import Callable
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pandas as pd
+from decimal import Decimal, ROUND_HALF_UP,InvalidOperation
 
 from src.configuration import DatasetConfig, get_dataset_config
 
 # region Data Transformation Functions
 Rules = dict[str, pd.Series]
 POSTGRES_INTEGER_MAX = 2_147_483_647
+POSTGRES_NUMBERIC_MAX = 10_000_000_000
 RuleBuilder = Callable[
     [pd.DataFrame, dict[str, pd.Series], DatasetConfig],
     Rules,
 ]
+NUMBERIC_COLUMNS = frozenset({
+    "price",
+    "freight_value",
+    "payment_value",
+    "product_weight_g",
+    "product_length_cm",
+    "product_width_cm",
+    "product_height_cm",
+})
 
+def parse_decimal(value):
+    if pd.isna(value):
+        return None
+
+    try:
+        parsed = Decimal(str(value))
+    except InvalidOperation:
+        return None
+
+    return parsed if parsed.is_finite() else None
+
+def round_decimal(value):
+    if pd.isna(value):
+        return None
+    if value < 0 or value >= POSTGRES_NUMBERIC_MAX:
+        return value
+    decimal_value = Decimal(str(value))
+    if not decimal_value.is_finite():
+        return None
+
+    return decimal_value.quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
 
 def _get_rules_builder(dataset_name: str) -> RuleBuilder:
     match dataset_name:
@@ -49,6 +84,27 @@ def _get_additional_rules(
                 present,
                 rules,
             )
+        case "geolocation":
+            return _geolocation_rules(
+                        result,
+                        present,
+                        rules,
+                    )
+        case "customers":
+            return _customers_rules(
+                        result,
+                        rules,
+                    )
+        case "sellers":
+                return _sellers_rules(
+                            result,
+                            rules,
+                            )
+        case "products":
+            return _products_rules(
+                        result,
+                        present,
+                        rules)
         case _:
             return rules
 
@@ -78,22 +134,24 @@ def _convert_values(
     result: pd.DataFrame,
     config: DatasetConfig,
 ) -> tuple[pd.DataFrame, dict[str, pd.Series]]:
-
-    #1. get ค่า date_columns และ numeric_columns และ copy ข้อมูลไปเก็บไว้ใน raw_values
     columns = config.date_columns + config.numeric_columns
     raw_values = result.loc[:, list(columns)].copy()
 
-    #2. สร้าง dictionary present เพื่อเก็บข้อมูลว่า column นั้นมีค่าหรือไม่
     present = {}
+
     for column in columns:
-        #3. convert ค่าใน column เป็น string และ strip whitespace check ว่ามีค่าหรือไม่ ถ้ามีค่าก็ convert เป็น datetime หรือ numeric ตาม column type
         text = raw_values[column].astype("string").str.strip()
         present[column] = text.fillna("").ne("")
         values = text.where(present[column])
-        converter = (
-            pd.to_datetime if column in config.date_columns else pd.to_numeric
-        )
-        result[column] = converter(values, errors="coerce")
+
+        if column in config.date_columns:
+            result[column] = pd.to_datetime(values, errors="coerce")
+
+        elif column in NUMBERIC_COLUMNS:
+            result[column] = values.map(parse_decimal).astype(object)
+
+        else:
+            result[column] = pd.to_numeric(values, errors="coerce")
 
     return raw_values, present
 
@@ -170,22 +228,23 @@ def _uuid_rules(
 
     return rules
 
-
 def _order_items_rules(
     result: pd.DataFrame,
     present: dict[str, pd.Series],
     rules: Rules,
 ) -> dict[str, pd.Series]:
-    #set floor data base
     for column, minimum in (("order_item_id", 1), ("price", 0), ("freight_value", 0)):
-        invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
+        is_numberic =  column in NUMBERIC_COLUMNS
+        out_of_range = result[column].lt(minimum) if not is_numberic else (result[column].lt(minimum) | result[column].map(round_decimal).ge(POSTGRES_NUMBERIC_MAX))
+        invalid = out_of_range | result[column].isin([float("inf"), float("-inf")])
         if column == "order_item_id":
             invalid |= result[column].notna() & (
                 result[column].mod(1).ne(0)
                 | result[column].gt(POSTGRES_INTEGER_MAX)
             )
+        else: 
+            result[column] = result[column].map(round_decimal)
         rules[f"invalid_{column}"] |= present[column] & invalid
-
     return rules
 
 def _order_payments_rules(
@@ -208,16 +267,18 @@ def _order_payments_rules(
         & ~result["payment_type"].isin(config.valid_payment_types)
     )
     for column, minimum in (("payment_sequential", 1), ("payment_installments", 0), ("payment_value", 0)):
-        invalid = result[column].lt(minimum) | result[column].isin([float("inf"), float("-inf")])
+        out_of_range = result[column].lt(minimum) if column != "payment_value" else (result[column].lt(minimum) | result[column].map(round_decimal).ge(POSTGRES_NUMBERIC_MAX))
+        invalid = out_of_range | result[column].isin([float("inf"), float("-inf")])
         if column != "payment_value":
             invalid |= result[column].notna() & (
                 result[column].mod(1).ne(0)
                 | result[column].gt(POSTGRES_INTEGER_MAX)
             )
+        else:
+            result[column] = result[column].map(round_decimal)
         rules[f"invalid_{column}"] |= present[column] & invalid
-
+        
     return rules
-
 
 def _order_reviews_rules(
     result: pd.DataFrame,
@@ -230,6 +291,62 @@ def _order_reviews_rules(
     )
 
     return rules
+
+def _geolocation_rules(
+    result: pd.DataFrame,
+    present: dict[str, pd.Series],
+    rules: Rules,
+) -> Rules:
+    for column, minimum, maximun in (("geolocation_lat", -90, 90), ("geolocation_lng", -180, 180)):
+            invalid = result[column].lt(minimum) | result[column].gt(maximun)
+            rules[f"invalid_{column}"] |= present[column] & invalid
+
+    rules[f"invalid_geolocation_zip_code_prefix"] =  (result["geolocation_zip_code_prefix"].str.len().gt(5).fillna(False))
+    rules[f"invalid_geolocation_state"] =  (result["geolocation_state"].str.len().gt(2).fillna(False))
+
+    return rules
+
+def _customers_rules(
+    result: pd.DataFrame,
+    rules: Rules,
+) -> Rules:
+    rules[f"invalid_customer_zip_code_prefix"] =  (result["customer_zip_code_prefix"].str.len().gt(5).fillna(False))
+    rules[f"invalid_customer_state"] =  (result["customer_state"].str.len().gt(2).fillna(False))
+
+    return rules
+
+def _sellers_rules(
+    result: pd.DataFrame,
+    rules: Rules,
+) -> Rules:
+    rules[f"invalid_seller_zip_code_prefix"] =  (result["seller_zip_code_prefix"].str.len().gt(5).fillna(False))
+    rules[f"invalid_seller_state"] =  (result["seller_state"].str.len().gt(2).fillna(False))
+
+    return rules
+
+def _products_rules(
+    result: pd.DataFrame,
+    present: dict[str, pd.Series],
+    rules: Rules,
+) -> dict[str, pd.Series]:
+    for column, minimum in (("product_photos_qty", 0), ("product_name_lenght", 0), ("product_description_lenght",0), ("product_weight_g", 0), ("product_length_cm", 0), ("product_width_cm", 0), ("product_height_cm", 0)):
+        is_numberic =  column in NUMBERIC_COLUMNS
+
+        out_of_range = result[column].lt(minimum) if not is_numberic else (result[column].lt(minimum) | result[column].map(round_decimal).ge(POSTGRES_NUMBERIC_MAX))
+        invalid = out_of_range | result[column].isin([float("inf"), float("-inf")])
+        if not is_numberic:
+            invalid |= result[column].notna() & (
+                result[column].mod(1).ne(0)
+                | result[column].gt(POSTGRES_INTEGER_MAX)
+            )
+        else: 
+            result[column] = result[column].map(round_decimal)
+        rules[f"invalid_{column}"] |= present[column] & invalid
+
+          
+
+    return rules
+
 
 def _split_records(
     result: pd.DataFrame,

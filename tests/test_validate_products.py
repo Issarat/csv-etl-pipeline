@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from src import validate
+from pathlib import Path
 
 
 @pytest.fixture
@@ -38,14 +39,17 @@ def test_merge_latest_translations_and_categories_preserves_ids_and_reruns(files
     validate.validate_product()
     categories = pd.read_csv(category_paths["validated"]).set_index("product_category_name")
     products = pd.read_csv(files["products"]["validated"])
-    assert categories.product_category_id.to_dict() == {
-        "livros": 42, "brinquedos": 8, "legacy": 19, "roupas": 43, "unknown": 44,
+    assert categories.columns.tolist() == ["product_category_name_english"]
+    assert set(categories.index) == {
+        "livros", "brinquedos", "legacy", "roupas", "unknown",
     }
     assert categories.loc["livros", "product_category_name_english"] == "books"
     assert categories.loc["brinquedos", "product_category_name_english"] == "new_toys"
-    assert products.product_category_id.dropna().tolist() == [42, 8, 43, 19, 44]
-    assert pd.isna(products.product_category_id.iloc[-1])
-    assert "product_category_name" not in products
+    assert products["product_category_name"].dropna().tolist() == [
+        "livros", "brinquedos", "roupas", "legacy", "unknown",
+        ]
+    assert pd.isna(products["product_category_name"].iloc[-1])
+    assert "product_category_id" not in products.columns
     before = category_paths["validated"].read_bytes()
     validate.validate_product()
     assert category_paths["validated"].read_bytes() == before
@@ -61,9 +65,8 @@ def test_empty_latest_translation_keeps_existing_translation(files, translation)
     pd.DataFrame({"product_category_name": ["books"]}).to_csv(files["products"]["clean"], index=False)
     validate.validate_product()
     categories = pd.read_csv(files["product_categories"]["validated"])
-    assert categories.product_category_id.tolist() == [7]
-    assert categories.product_category_name_english.tolist() == ["books"]
-
+    assert "product_category_id" not in categories.columns
+    assert categories["product_category_name"].tolist() == ["livros"]
 
 def test_first_run_adds_latest_categories_even_when_unused(files):
     files["product_categories"]["clean"].write_text(
@@ -71,7 +74,13 @@ def test_first_run_adds_latest_categories_even_when_unused(files):
     )
     files["products"]["clean"].write_text("product_category_name\nbooks\n", encoding="utf-8")
     validate.validate_product()
-    assert pd.read_csv(files["product_categories"]["validated"]).product_category_id.tolist() == [1, 2]
+    categories = pd.read_csv(files["product_categories"]["validated"])
+
+    assert categories.columns.tolist() == [
+        "product_category_name",
+        "product_category_name_english",
+    ]
+    assert set(categories["product_category_name"]) == {"livros", "roupas"}
 
 
 def test_ambiguous_latest_translation_does_not_overwrite_outputs(files):
@@ -88,3 +97,36 @@ def test_ambiguous_latest_translation_does_not_overwrite_outputs(files):
         validate.validate_product()
     assert category_paths["validated"].read_bytes() == before
     assert not files["products"]["validated"].exists()
+
+def test_category_csv_write_failure_preserves_existing_output(files, monkeypatch):
+    category_paths = files["product_categories"]
+    output = category_paths["validated"]
+
+    pd.DataFrame({
+        "product_category_id": [42],
+        "product_category_name": ["livros"],
+        "product_category_name_english": ["books"],
+    }).to_csv(output, index=False)
+
+    pd.DataFrame({
+        "product_category_name": ["livros"],
+        "product_category_name_english": ["new_books"],
+    }).to_csv(category_paths["clean"], index=False)
+
+    pd.DataFrame({
+        "product_id": ["a"],
+        "product_category_name": ["livros"],
+    }).to_csv(files["products"]["clean"], index=False)
+
+    original_content = output.read_bytes()
+
+    def fail_after_partial_write(self, path, *args, **kwargs):
+        Path(path).write_text("partial CSV", encoding="utf-8")
+        raise OSError("simulated CSV write failure")
+
+    monkeypatch.setattr(pd.DataFrame, "to_csv", fail_after_partial_write)
+
+    with pytest.raises(OSError, match="simulated CSV write failure"):
+        validate.validate_product()
+
+    assert output.read_bytes() == original_content

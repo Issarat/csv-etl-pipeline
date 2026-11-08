@@ -73,3 +73,22 @@ def test_invalid_uuid_is_rejected(transformer, frame_factory, column):
     assert clean.empty
     assert rejected["rejection_reason"].tolist() == [f"invalid_{column}"]
     assert rejected[f"raw_{column}"].tolist() == ["not-a-uuid"]
+
+@pytest.mark.parametrize(
+    ("transformer", "frame_factory", "column"),
+    [
+        (transform_customers, customer_frame, "customer_zip_code_prefix"),
+        (transform_sellers, seller_frame, "seller_zip_code_prefix"),
+    ],
+)
+def test_overlong_state_is_rejected(transformer, frame_factory, column):
+    frame = frame_factory()
+    frame[column] = "010010"
+    clean, rejected = transformer(frame)
+    
+    assert clean.empty
+    assert rejected["rejection_reason"].tolist() == [f"invalid_{column}"]
+    assert len(rejected) == 1
+    assert len(clean) + len(rejected) == len(frame)
+
+    
