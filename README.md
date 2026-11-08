@@ -1,198 +1,73 @@
 # CSV ETL Pipeline
 
-A Python ETL pipeline for all nine Olist datasets. It cleans CSV data,
-exports rejected records, prepares category and geolocation mappings, and
-optionally loads PostgreSQL tables with upserts.
+A Python ETL pipeline that loads nine Olist datasets into PostgreSQL. It validates CSV records, exports rejected rows with reasons, and loads clean data in foreign-key order.
 
 ## Quick start
 
-Run commands from the project root. Install Python compatible with the pinned
-packages in `requirements.txt`.
+From the project root on Windows with Python 3.14 and Docker Compose:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+docker compose up -d --wait postgres
 .\.venv\Scripts\python.exe -m src.pipeline
 ```
 
-On macOS/Linux, create the environment with `python3 -m venv .venv` and use
-`.venv/bin/python` instead of `.\.venv\Scripts\python.exe`.
+The pipeline requires PostgreSQL. See [Setup](docs/setup.md) for Git Bash, macOS/Linux, database checks, and integration tests.
 
-Set `dev_mode = True` in `src/pipeline.py` to run cleaning and validation
-without Docker, `.env`, database engine creation, or database connections.
-Set it to `False` to create the schema and load PostgreSQL. This setting is
-currently a Python variable, not a command-line flag. The current repository
-setting is `False`.
+## Pipeline and load keys
 
-## Supported datasets
+Each dataset is extracted from `data/raw/`, cleaned, and split into clean and rejected CSVs. Cleaning checks required fields, formats, ranges, and configured duplicate keys. The pipeline checks that clean plus rejected row counts equal the input row count and that every rejected row has a reason.
 
-| Dataset              | Cleaning and output behavior                                           | Upsert conflict key              |
-| -------------------- | ---------------------------------------------------------------------- | -------------------------------- |
-| `customers`          | Trim IDs and text; preserve ZIP as string                              | `customer_id`                    |
-| `sellers`            | Retain all four source columns; preserve ZIP as string                 | `seller_id`                      |
-| `orders`             | Normalize status; convert purchase/delivery dates                      | `order_id`                       |
-| `order_payments`     | Normalize payment type; validate amounts/installments; generate UUID   | `order_id`, `payment_sequential` |
-| `order_reviews`      | Rename review ID; validate scores/dates; allow null comments           | `order_review_id`, `order_id`    |
-| `order_items`        | Convert dates/numbers; validate composite key                          | `order_id`, `order_item_id`      |
-| `product_categories` | Clean canonical names; assign IDs during validation                    | `product_category_name`          |
-| `products`           | Convert numeric fields; map category names during validation           | `product_id`                     |
-| `geolocation`        | Preserve ZIP string; convert coordinates; assign IDs during validation | `geolocation_id`                 |
+The table lists the load order. Categories, products, and geolocation also produce validated CSVs under `data/validate/`.
 
-## Pipeline flow
+| Dataset | Load strategy |
+| --- | --- |
+| `product_categories` | Upsert by `product_category_name`. PostgreSQL assigns IDs to new categories. |
+| `products` | Upsert by `product_id`. Resolve canonical category names to existing PostgreSQL IDs. |
+| `geolocation` | Replace the entire snapshot in one transaction. |
+| `customers` | Upsert by `customer_id`. |
+| `sellers` | Upsert by `seller_id`. |
+| `orders` | Upsert by `order_id`. |
+| `order_payments` | Upsert by `order_id` and `payment_sequential`. Derive a deterministic UUID from that pair. |
+| `order_reviews` | Upsert by `order_review_id` and `order_id`. |
+| `order_items` | Upsert by `order_id` and `order_item_id` after orders, products, and sellers load. |
 
-```text
-data/raw/ -> extract -> transform -> data/clean/
-                              `-> data/rejected/
+Before loading orders, payments, reviews, or items, the pipeline checks that their parent IDs exist in PostgreSQL. Missing references stop the run and the error includes sample IDs.
 
-customers, sellers, orders, order_payments, order_reviews:
-    clean DataFrame -> database
+## Reruns and recovery
 
-product_categories, products, geolocation:
-    clean CSV -> validate -> data/validate/ -> database
+- All chunks for a table load share one transaction. If a later table fails, earlier table commits remain visible. Fix the cause and rerun from the beginning.
+- Upserts update matching keys and retain rows omitted from later CSVs. Geolocation replaces its contents with the current validated snapshot.
+- Keep `data/validate/geolocation_id_mapping.csv` across runs to preserve historical geolocation IDs, including IDs for removed rows. This file is local pipeline state. Back it up alongside the database if IDs must survive a move to a new checkout.
+- A project-root `.pipeline.lock` rejects overlapping runs that share the same checkout. Separate checkouts have separate locks.
+- CSVs are replaced atomically one file at a time. If replacement fails on Windows, close the output file in Excel or other applications and rerun.
+- Check `logs/pipeline/main.log` for the run ID, final status, and dataset load statuses.
 
-order_items:
-    clean DataFrame -> retained until parent tables load -> database
-```
+## Project layout
 
-In development mode, all database steps are skipped. Cleaning checks required
-columns, reserved output columns, missing required values, type conversions,
-and configured duplicate keys. Duplicate keys reject all occurrences.
-Each rejected row has a nonempty `rejection_reason`; converted numeric/date
-fields also retain original values in `raw_...` columns. Input row counts must
-match clean plus rejected counts.
+| Path | Purpose |
+| --- | --- |
+| `src/pipeline.py` | ETL entry point, run lock, and load orchestration |
+| `src/configuration.py` | Dataset rules and CSV paths |
+| `src/extract.py`, `src/transform.py`, `src/validate.py` | Extraction, cleaning, and mapping |
+| `src/load.py`, `sql/schema.sql` | PostgreSQL writes and schema |
+| `data/raw/` | Source CSVs, named `olist_<dataset>_dataset.csv` except `product_categories.csv` |
+| `data/clean/`, `data/rejected/`, `data/validate/` | Clean, rejected, and validated outputs |
+| `tests/`, `.github/workflows/ci.yml` | Unit and PostgreSQL integration tests |
 
-In database mode, load order is:
+See the [ER diagram](docs/er-diagram.md) for relationships.
 
-```text
-customers -> sellers -> orders -> order_payments -> order_reviews
-          -> product_categories -> products -> geolocation -> order_items
-```
-
-Each table load is transactional. The whole pipeline is not one transaction.
-Upserts update supplied non-key columns; they do not remove rows absent from
-subsequent input files.
-
-## Files and folders
-
-Paths are configured in `src/configuration.py`.
-
-| Stage     | Standard datasets                             | Product categories                               |
-| --------- | --------------------------------------------- | ------------------------------------------------ |
-| Raw       | `data/raw/olist_<dataset>_dataset.csv`        | `data/raw/product_categories.csv`                |
-| Clean     | `data/clean/olist_<dataset>_clean.csv`        | `data/clean/product_categories_clean.csv`        |
-| Rejected  | `data/rejected/olist_<dataset>_rejected.csv`  | `data/rejected/product_categories_rejected.csv`  |
-| Validated | `data/validate/olist_<dataset>_validated.csv` | `data/validate/product_categories_validated.csv` |
-
-Only products, product categories, and geolocation currently have a separate
-validation stage. Clean inputs are preserved when validated files are written.
-The generated `data/clean/`, `data/rejected/`, `data/validate/`, and `logs/`
-directories are ignored by Git and can be regenerated by rerunning the
-pipeline. Raw source CSV files under `data/raw/` remain tracked.
-
-```text
-csv-etl-pipeline/
-|-- compose.yaml
-|-- requirements.txt
-|-- data/{raw,clean,rejected,validate}/
-|-- docs/
-|-- logs/{pipeline,validate,load,profiling}/
-|-- sql/schma.sql
-|-- src/
-|   |-- configuration.py   # Paths and dataset rules
-|   |-- extract.py         # CSV extraction
-|   |-- transform.py       # Shared cleaning and rejection rules
-|   |-- validate.py        # Mapping and validated file generation
-|   |-- load.py            # Lazy database setup and upserts
-|   |-- pipeline.py        # Orchestration
-|   |-- profiling.py       # Source data profiling
-|   `-- logger.py          # Console and file logs
-`-- tests/
-```
-
-## PostgreSQL and schema
-
-[ER diagram](docs/er-diagram.md)
-Use an accessible PostgreSQL server or the optional PostgreSQL 17 service in
-`compose.yaml`. The provided Compose service exposes host port `5433`.
+## Tests and profiling
 
 ```powershell
-docker compose up -d postgres
-docker compose ps
-```
-
-For this local service, create a project-root `.env`:
-
-```env
-DATABASE_URL=postgresql+psycopg://etl_user:etl_password@localhost:5433/olist
-```
-
-Set `dev_mode = False`, then run `python -m src.pipeline` using your virtual
-environment. Database configuration is read only when database functions run.
-To apply the schema separately:
-
-```powershell
-.\.venv\Scripts\python.exe -m src.load
-```
-
-To verify the connection and inspect the created tables:
-
-```powershell
-docker compose exec postgres psql -U etl_user -d olist -c "SELECT current_database(), current_user;"
-docker compose exec postgres psql -U etl_user -d olist -c "\dt"
-```
-
-`sql/schma.sql` defines nine tables. Foreign keys are:
-
-| Child column                   | Parent column                            |
-| ------------------------------ | ---------------------------------------- |
-| `orders.customer_id`           | `customers.customer_id`                  |
-| `order_items.order_id`         | `orders.order_id`                        |
-| `order_items.product_id`       | `products.product_id`                    |
-| `order_items.seller_id`        | `sellers.seller_id`                      |
-| `order_payments.order_id`      | `orders.order_id`                        |
-| `order_reviews.order_id`       | `orders.order_id`                        |
-| `products.product_category_id` | `product_categories.product_category_id` |
-
-Source entity IDs are stored as UUIDs. Category IDs are integers generated by
-`GENERATED BY DEFAULT AS IDENTITY`, allowing explicit validated IDs. Canonical
-category names are unique and required; English names and product category
-references may be null. Geolocation uses an integer primary key and a
-non-unique indexed `VARCHAR(5)` ZIP. Seller ZIPs also use `VARCHAR(5)`.
-Payment amounts use `NUMERIC(12, 2)`; schema checks enforce payment types,
-numeric bounds, order statuses, and review scores.
-
-`CREATE TABLE IF NOT EXISTS` does not generally upgrade existing tables. The
-SQL explicitly updates category identity generation, adds missing order-item
-product/seller references, and renames an old reviews `review_id` column.
-An older payments table still needs a separate migration for its UUID primary
-key, unique natural key, and payment-type check. Existing records must satisfy
-foreign keys when those constraints are added.
-
-Docker initializes SQL scripts only for a new database volume. Running
-`python -m src.load` applies the current script to an existing database, subject
-to the migration limits above. Stop containers without deleting data with
-`docker compose down`.
-
-## Profiling and tests
-
-```powershell
+.\.venv\Scripts\python.exe -m pytest -q -rs
 .\.venv\Scripts\python.exe -m src.profiling
-.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Profiling has its own dataset list in `src/profiling.py`. Runtime exceptions
-are logged with tracebacks and raised. Automated tests currently cover product
-cleaning; database integration is not covered by the pytest suite.
+GitHub Actions runs pytest with Python 3.14 and PostgreSQL 17. Integration tests cover repeat upserts, rollback after a later chunk fails, category ID preservation, and rerunning after a pipeline failure. Locally, integration tests are skipped unless `TEST_DATABASE_URL` is set.
 
-## Troubleshooting
+## Next goal
 
-- Connection failure: verify `DATABASE_URL`, PostgreSQL availability, and port.
-- Foreign-key failure: confirm referenced records survived cleaning and were
-  loaded. Load ordering cannot resolve references to rejected parent rows.
-- Ambiguous category: ensure each canonical/English alias identifies one category.
-- Import failure: run from the project root using the virtual environment.
-- `ModuleNotFoundError: src.configuration`: confirm the file is named exactly
-  `src/configuration.py`, including lowercase letters on case-sensitive systems.
-
-Additional documents: [Setup](docs/setup.md) and [ER diagram](docs/er-diagram.md). The
-current implementation and `sql/schma.sql` define the behavior described here.
+Add a read-only FastAPI service that serves data already loaded into PostgreSQL. Keep ETL execution as a separate command.
