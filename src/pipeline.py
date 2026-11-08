@@ -209,8 +209,6 @@ def main() -> None:
                 })
             elif dataset == "products":
                 dtype["product_category_name"] = "string"
-            else:
-                dtype["product_category_id"] = "Int64"
             
             validated_df = extract_csv(
                 str(paths["validated"]),
@@ -223,9 +221,7 @@ def main() -> None:
                         None if pd.isna(value) else Decimal(value)
                     )
                 )
-            if dataset == "product_categories":
-                validated_df = validated_df.drop(columns=["product_category_id"])
-            elif dataset == "products":
+            if dataset == "products":
                 names = validated_df["product_category_name"]
                 mapping = read_product_category_mapping()
                 category_ids = names.map(mapping).astype("Int64")

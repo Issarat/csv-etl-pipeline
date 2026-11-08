@@ -39,8 +39,9 @@ def test_merge_latest_translations_and_categories_preserves_ids_and_reruns(files
     validate.validate_product()
     categories = pd.read_csv(category_paths["validated"]).set_index("product_category_name")
     products = pd.read_csv(files["products"]["validated"])
-    assert categories.product_category_id.to_dict() == {
-        "livros": 42, "brinquedos": 8, "legacy": 19, "roupas": 43, "unknown": 44,
+    assert categories.columns.tolist() == ["product_category_name_english"]
+    assert set(categories.index) == {
+        "livros", "brinquedos", "legacy", "roupas", "unknown",
     }
     assert categories.loc["livros", "product_category_name_english"] == "books"
     assert categories.loc["brinquedos", "product_category_name_english"] == "new_toys"
@@ -64,9 +65,8 @@ def test_empty_latest_translation_keeps_existing_translation(files, translation)
     pd.DataFrame({"product_category_name": ["books"]}).to_csv(files["products"]["clean"], index=False)
     validate.validate_product()
     categories = pd.read_csv(files["product_categories"]["validated"])
-    assert categories.product_category_id.tolist() == [7]
-    assert categories.product_category_name_english.tolist() == ["books"]
-
+    assert "product_category_id" not in categories.columns
+    assert categories["product_category_name"].tolist() == ["livros"]
 
 def test_first_run_adds_latest_categories_even_when_unused(files):
     files["product_categories"]["clean"].write_text(
@@ -74,7 +74,13 @@ def test_first_run_adds_latest_categories_even_when_unused(files):
     )
     files["products"]["clean"].write_text("product_category_name\nbooks\n", encoding="utf-8")
     validate.validate_product()
-    assert pd.read_csv(files["product_categories"]["validated"]).product_category_id.tolist() == [1, 2]
+    categories = pd.read_csv(files["product_categories"]["validated"])
+
+    assert categories.columns.tolist() == [
+        "product_category_name",
+        "product_category_name_english",
+    ]
+    assert set(categories["product_category_name"]) == {"livros", "roupas"}
 
 
 def test_ambiguous_latest_translation_does_not_overwrite_outputs(files):

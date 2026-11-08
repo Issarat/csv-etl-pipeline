@@ -95,7 +95,6 @@ def validate_product() -> None:
     validated_path = paths["validated"]
     category_paths = get_dataset_paths("product_categories")
     category_path = category_paths["validated"]
-
     if not clean_path.exists():
         logger.error("Clean dataset file does not exist: %s", clean_path)
         raise FileNotFoundError(f"Clean dataset file does not exist: {clean_path}")
@@ -112,8 +111,8 @@ def validate_product() -> None:
         logger.info("Loaded clean dataset with %d rows and %d columns.", len(df), len(df.columns))
 
         name_column = "product_category_name"
-        id_column = "product_category_id"
         english_column = "product_category_name_english"
+        category_columns = [name_column, english_column]
         latest_categories = pd.read_csv(category_paths["clean"])
         for column in (name_column, english_column):
             latest_categories[column] = latest_categories[column].astype("string").str.strip()
@@ -123,14 +122,14 @@ def validate_product() -> None:
             raise ValueError("Clean categories contain empty or duplicate names")
 
         if category_path.exists():
-            categories = pd.read_csv(category_path)
+            categories = pd.read_csv(
+                category_path,
+                usecols=category_columns,
+                dtype="string",
+            )
             for column in (name_column, english_column):
                 categories[column] = categories[column].astype("string").str.strip()
-            existing_ids = pd.to_numeric(categories[id_column], errors="raise").astype("Int64")
-            if existing_ids.isna().any() or existing_ids.duplicated().any():
-                raise ValueError("Category mapping contains null or duplicate IDs")
-            
-            categories[id_column] = existing_ids
+           
             # Update translations by canonical name without changing existing IDs.
             latest_translations = latest_categories.set_index(name_column)[english_column]
             translations = categories[name_column].map(latest_translations)
@@ -138,10 +137,7 @@ def validate_product() -> None:
             new_categories = latest_categories.loc[
                 ~latest_names.isin(categories[name_column]), [name_column, english_column]
             ].copy()
-            next_id = int(existing_ids.max()) + 1 if not existing_ids.empty else 1
-            new_categories.insert(0, id_column, pd.array(
-                range(next_id, next_id + len(new_categories)), dtype="Int64",
-            ))
+            
             categories = pd.concat([categories, new_categories], ignore_index=True)
         else:
             categories = latest_categories.loc[:, [name_column, english_column]].copy()
@@ -171,28 +167,14 @@ def validate_product() -> None:
         unknown = product_names.fillna("").ne("") & canonical_names.isna()
         canonical_names = canonical_names.where(~unknown, product_names)
         df[name_column] = canonical_names
-
-        if id_column not in categories:
-            categories.insert(0, id_column, range(1, len(categories) + 1))
-        
-        ids = pd.to_numeric(categories[id_column], errors="raise").astype("Int64")
-
-        if ids.isna().any() or ids.duplicated().any():
-            raise ValueError("Category mapping contains null or duplicate IDs")
-
         if unknown.any():
             new_names = sorted(product_names[unknown].unique())
-            next_id = int(ids.max()) + 1 if not ids.empty else 1
-            new_categories = pd.DataFrame(
-                {
-                    id_column: pd.array(
-                        range(next_id, next_id + len(new_names)), dtype="Int64",
-                    ),
-                    name_column: new_names,
-                    "product_category_name_english": pd.NA,
-                }
-            )
+            new_categories = pd.DataFrame({
+                name_column: new_names,
+                english_column: pd.NA,
+            })
             categories = pd.concat([categories, new_categories], ignore_index=True)
+
 
         ## white files
         validated_path.parent.mkdir(parents=True, exist_ok=True)
@@ -210,7 +192,7 @@ def validate_product() -> None:
         df.to_csv(product_temp, index=False)
         replace_with_retry(product_temp, validated_path)
         logger.info("Successfully validated dataset to: %s", validated_path)
-
+    
     except Exception as e:
         logger.exception("Failed to validate dataset: %s", e) 
         raise

@@ -1,15 +1,14 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, call 
 
 import pandas as pd
 import pytest
 
 from src import pipeline
 
-
 def test_main_uses_database_category_id_for_products(monkeypatch):
     categories = pd.DataFrame({
-        "product_category_id": [1],
         "product_category_name": ["livros"],
+        "product_category_name_english": ["books"],
     })
     products = pd.DataFrame({
         "product_category_name": ["livros"],
@@ -39,7 +38,6 @@ def test_main_uses_database_category_id_for_products(monkeypatch):
     monkeypatch.setattr(pipeline, "_load_dataset", load_dataset)
 
     pipeline.main()
-
     category_call, product_call = load_dataset.call_args_list
     category_dataset, loaded_categories = category_call.args
     product_dataset, loaded_products = product_call.args
@@ -69,4 +67,31 @@ def test_load_orders_stops_before_upsert_when_customer_is_missing(monkeypatch):
         column_name="customer_id",
     )
     upsert.assert_not_called()
-    
+
+def test_load_order_items_stops_before_upsert_when_seller_is_missing(monkeypatch):
+    items = pd.DataFrame({
+        "order_id": ["order-1"],
+        "product_id": ["product-1"],
+        "seller_id": ["seller-1"],
+    })
+
+    check_references = Mock(side_effect=[set(), set(), {"seller-1"}])
+    upsert = Mock()
+
+    monkeypatch.setattr(pipeline, "get_logger", Mock(return_value=Mock()))
+    monkeypatch.setattr(pipeline, "find_missing_reference_ids", check_references)
+    monkeypatch.setattr(pipeline, "upsert_dataframe", upsert)
+
+    with pytest.raises(
+        ValueError,
+        match=r"order_items\.seller_id references missing sellers",
+    ) as error:
+        pipeline._load_dataset("order_items", items)
+
+    assert "1 missing IDs, 1 affected order_items" in str(error.value)
+    assert check_references.call_args_list == [
+        call(items, table_name="orders", column_name="order_id"),
+        call(items, table_name="products", column_name="product_id"),
+        call(items, table_name="sellers", column_name="seller_id"),
+    ]
+    upsert.assert_not_called()

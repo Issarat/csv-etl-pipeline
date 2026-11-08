@@ -186,8 +186,11 @@ def find_missing_reference_ids(
             )
             return set()
         
-        customer_ids = tuple(df[column_name].tolist())
-        chunks = [customer_ids[i:i + chunk_size] for i in range(0, len(customer_ids), chunk_size)]
+        reference_ids = tuple(df[column_name].unique())
+        chunks = [
+            reference_ids[i:i + chunk_size]
+            for i in range(0, len(reference_ids), chunk_size)
+        ]
 
         query = text(f"""
                 SELECT {column_name}
@@ -202,7 +205,7 @@ def find_missing_reference_ids(
                 rows = connection.execute(query, {"ids": chunk}).scalars()
                 existing_ids.update(str(value) for value in rows)
 
-        return set(customer_ids) - existing_ids
+        return set(reference_ids) - existing_ids
     except SQLAlchemyError:
         logger.exception(
             "Database error while loading table %s",

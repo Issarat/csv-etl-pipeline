@@ -366,11 +366,9 @@ def test_main_loads_products_with_existing_postgres_category_id(
     products_csv = tmp_path / "products_validated.csv"
 
     pd.DataFrame([{
-        "product_category_id": 1,
         "product_category_name": "livros",
         "product_category_name_english": "books",
     }]).to_csv(categories_csv, index=False)
-
     pd.DataFrame([{
         "product_id": product_id,
         "product_category_name": "livros",
