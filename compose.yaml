@@ -18,8 +18,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-      
+
   pipeline:
+    image: csv-etl-pipeline:local
     build: .
     environment:
       DATABASE_URL: postgresql+psycopg://etl_user:etl_password@postgres:5432/olist
@@ -31,7 +32,64 @@ services:
       - ./logs:/app/logs
     restart: "no"
 
+
+  # Local learning environment; starts all Airflow components together.
+  airflow-postgres:
+    image: postgres:17-alpine
+    profiles: [airflow]
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow_local
+    volumes:
+      - airflow_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  airflow:
+    image: csv-etl-airflow:local
+    build:
+      context: ./docker/airflow
+    profiles: [airflow]
+    # Root group allows access to Docker Desktop's socket.
+    user: "50000:0"
+    command: standalone
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: "admin:admin"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow_local@airflow-postgres:5432/airflow
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://localhost:8080/execution/
+      AIRFLOW_VAR_ETL_DATABASE_URL: postgresql+psycopg://etl_user:etl_password@postgres:5432/olist
+      AIRFLOW_VAR_ETL_HOST_PROJECT_DIR: ${ETL_HOST_PROJECT_DIR:-/run/desktop/mnt/host/d/csv-etl-pipeline}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - airflow_home:/opt/airflow
+      - ./dags:/opt/airflow/dags:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8080/api/v2/monitor/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  airflow_db:
+  airflow_home:
 
-
+networks:
+  default:
+    name: csv-etl-network

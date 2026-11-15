@@ -1,6 +1,6 @@
 # CSV ETL Pipeline
 
-A Python ETL pipeline that loads nine Olist datasets into PostgreSQL. It validates CSV records, exports rejected rows with reasons, and loads clean data in foreign-key order.
+A Python ETL pipeline that loads nine Olist datasets into PostgreSQL. It validates CSV records, exports rejected rows with reasons, and loads clean data in foreign-key order. An optional Airflow DAG runs the existing ETL image through DockerOperator.
 
 ## Quick start
 
@@ -57,6 +57,63 @@ docker compose up -d --wait postgres
 
 The pipeline requires PostgreSQL. See [Setup](docs/setup.md) for Git Bash, macOS/Linux, database checks, and integration tests.
 
+### Airflow: run the pipeline from the web UI
+
+The optional `airflow` Compose profile starts Airflow 3.1.8 in standalone mode with a separate PostgreSQL metadata database. `DockerOperator` launches `csv-etl-pipeline:local` on the same network as the Olist database. Airflow dependencies are installed in its own image; no local Airflow installation is required.
+
+```powershell
+New-Item -ItemType Directory -Force logs | Out-Null
+docker compose build pipeline
+docker compose --profile airflow build airflow
+docker compose --profile airflow up -d postgres airflow-postgres airflow
+docker compose logs -f airflow
+```
+
+After startup, press Ctrl+C to stop following logs. Retrieve the generated password:
+
+```powershell
+docker compose exec airflow cat /opt/airflow/simple_auth_manager_passwords.json.generated
+```
+
+Open [Airflow](http://localhost:8080), log in as `admin`, unpause `olist_etl`, and click **Trigger**. Open the run, select `run_pipeline`, and inspect **Logs**. Triggering runs the real ETL and writes to PostgreSQL.
+
+| DAG setting | Current behavior |
+| --- | --- |
+| Task | One `run_pipeline` task invokes `python -m src.pipeline` |
+| Schedule | Manual only (`schedule=None`) |
+| Retry | Two retries, five minutes apart |
+| Concurrency | One active DAG run (`max_active_runs=1`) |
+| Catchup | Disabled |
+| Data and logs | Host directories mounted into the ETL container |
+
+For the current Windows checkout at `D:\csv-etl-pipeline`, the default Docker daemon host path is `/run/desktop/mnt/host/d/csv-etl-pipeline`. For a different checkout or host OS, set `ETL_HOST_PROJECT_DIR` in `.env` to the absolute project path visible to the Docker daemon and recreate the Airflow service. Compose supplies the database URL and host path as environment-backed Airflow Variables.
+
+#### Manual verification
+
+Two manually triggered Airflow runs completed successfully with unchanged inputs. After the second run, the following database counts matched the processed row counts:
+
+| Table | Verified rows |
+| --- | ---: |
+| `order_items` | 112,650 |
+| `order_payments` | 103,886 |
+| `order_reviews` | 99,224 |
+
+Recheck these tables after a rerun:
+
+```powershell
+docker compose exec postgres psql -U etl_user -d olist -c "SELECT 'order_items' AS dataset, COUNT(*) FROM order_items UNION ALL SELECT 'order_payments', COUNT(*) FROM order_payments UNION ALL SELECT 'order_reviews', COUNT(*) FROM order_reviews;"
+```
+
+These counts are a manual check for duplicate growth in this dataset, not a complete comparison of stored values or all nine tables. Retry recovery and scheduled execution have not yet been manually verified.
+
+Stop Airflow while retaining its state and both databases:
+
+```powershell
+docker compose --profile airflow stop airflow airflow-postgres
+```
+
+This standalone setup is for local learning. The Docker socket gives Airflow access to the host Docker engine. See [Airflow setup and testing](docs/airflow.md) for import checks, mount diagnostics, and troubleshooting.
+
 ## Pipeline and load keys
 
 Each dataset is extracted from `data/raw/`, cleaned, and split into clean and rejected CSVs. Cleaning checks required fields, formats, ranges, and configured duplicate keys. The pipeline checks that clean plus rejected row counts equal the input row count and that every rejected row has a reason.
@@ -96,6 +153,9 @@ Before loading orders, payments, reviews, or items, the pipeline checks that the
 | `src/load.py`, `sql/schema.sql` | PostgreSQL writes and schema |
 | `data/raw/` | Source CSVs, named `olist_<dataset>_dataset.csv` except `product_categories.csv` |
 | `data/clean/`, `data/rejected/`, `data/validate/` | Clean, rejected, and validated outputs |
+| `dags/olist_etl.py` | Airflow DAG that launches the ETL container |
+| `docker/airflow/Dockerfile` | Airflow image and Docker provider dependencies |
+| `compose.yaml`, `docs/airflow.md` | Local services and Airflow setup instructions |
 | `tests/`, `.github/workflows/ci.yml` | Unit and PostgreSQL integration tests |
 
 See the [ER diagram](docs/er-diagram.md) for relationships.
