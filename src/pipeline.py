@@ -42,8 +42,9 @@ TRANSFORMERS = {
 DATA_LIST = ("customers", "sellers", "orders", "order_payments", "order_reviews", "order_items")
 VALIDATE_LIST = ("product_categories", "products", "geolocation")
 CHECK_MISSING_DATA = ("orders","order_payments","order_reviews","order_items")
-PIPELINE_LOCK_PATH = Path(__file__).resolve().parents[1] / ".pipeline.lock"
-
+PIPELINE_LOCK_PATH = (
+    Path(__file__).resolve().parents[1] / "data" / ".pipeline.lock"
+)
 
 def _export_csv(df: pd.DataFrame, file_path: Path) -> None:
     file_path = Path(file_path)
@@ -280,6 +281,7 @@ def _run_pipeline() -> None:
         raise
 
 def main() -> None:
+    PIPELINE_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
     lock = FileLock(str(PIPELINE_LOCK_PATH))
 
     try:

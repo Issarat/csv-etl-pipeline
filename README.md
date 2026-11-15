@@ -4,6 +4,47 @@ A Python ETL pipeline that loads nine Olist datasets into PostgreSQL. It validat
 
 ## Quick start
 
+### Docker: run the pipeline and PostgreSQL
+
+Start Docker Desktop (or Docker Engine with Compose) and place the source CSVs in `data/raw/`. Run these commands from the project root. No local Python installation, virtual environment, or `.env` file is required for this option; Compose supplies the database URL.
+
+```powershell
+docker compose config --quiet
+docker compose build pipeline
+docker compose up -d --wait postgres
+docker compose run --rm pipeline
+$LASTEXITCODE
+```
+
+The pipeline waits for PostgreSQL's health check and exits when the ETL job finishes. Check `$LASTEXITCODE` immediately after the run: `0` means success; a nonzero value means failure. `--rm` removes the finished pipeline container. Rebuild with `docker compose build pipeline` after changing code or dependencies.
+
+Verify the latest run and database contents:
+
+```powershell
+Get-Content logs/pipeline/main.log -Tail 20
+docker compose exec postgres psql -U etl_user -d olist -c "SELECT count(*) FROM orders;"
+```
+
+Look for `status=SUCCEEDED` for the latest run ID. Run `docker compose run --rm pipeline` again with unchanged inputs and compare table counts to check for duplicate growth. Equal counts alone do not verify all stored values.
+
+| Storage | Purpose |
+| --- | --- |
+| `./data:/app/data` | Source CSVs, generated outputs, geolocation mapping state, and the pipeline lock |
+| `./logs:/app/logs` | Logs retained on the host after the pipeline container exits |
+| `postgres_data` | PostgreSQL data retained when containers are recreated |
+
+Inside Docker, the pipeline connects to `postgres:5432`. Applications running on the host connect to `localhost:5433`. The bundled credentials in `compose.yaml` are for local development.
+
+Stop the services while retaining database data:
+
+```powershell
+docker compose down
+```
+
+To check persistence, run `docker compose up -d --wait postgres` again and repeat the count query before rerunning the pipeline. Do not add `-v` to `docker compose down` unless you intend to delete the database volume.
+
+### Local Python with PostgreSQL in Docker
+
 From the project root on Windows with Python 3.14 and Docker Compose:
 
 ```powershell
@@ -41,7 +82,7 @@ Before loading orders, payments, reviews, or items, the pipeline checks that the
 - All chunks for a table load share one transaction. If a later table fails, earlier table commits remain visible. Fix the cause and rerun from the beginning.
 - Upserts update matching keys and retain rows omitted from later CSVs. Geolocation replaces its contents with the current validated snapshot.
 - Keep `data/validate/geolocation_id_mapping.csv` across runs to preserve historical geolocation IDs, including IDs for removed rows. This file is local pipeline state. Back it up alongside the database if IDs must survive a move to a new checkout.
-- A project-root `.pipeline.lock` rejects overlapping runs that share the same checkout. Separate checkouts have separate locks.
+- `data/.pipeline.lock` rejects overlapping runs sharing the same data directory and compatible filesystem locking. Compose mounts this directory into pipeline containers. Separate data directories have separate locks; verify locking behavior when mixing Windows host runs and Linux containers.
 - CSVs are replaced atomically one file at a time. If replacement fails on Windows, close the output file in Excel or other applications and rerun.
 - Check `logs/pipeline/main.log` for the run ID, final status, and dataset load statuses.
 

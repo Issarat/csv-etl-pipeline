@@ -18,6 +18,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      
+  pipeline:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://etl_user:etl_password@postgres:5432/olist
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: "no"
 
 volumes:
   postgres_data:
+
+
