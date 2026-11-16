@@ -25,6 +25,7 @@ from src.transform import (
     transform_order_reviews,
 )
 from src.load import create_table, upsert_dataframe, replace_geolocation, read_product_category_mapping,find_missing_reference_ids
+from src.quality import validate_customers
 
 # Dataset order follows foreign key dependencies.
 TRANSFORMERS = {
@@ -142,6 +143,8 @@ def _get_data_missing_check(dataset: str) -> List[Tuple[str, str]]:
 def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
     """Load already cleaned records into PostgreSQL."""
     logger = get_logger(dataset_name=dataset, log_type="pipeline")
+    if dataset == "customers":
+        validate_customers(clean_df)
     try:
         logger.info("Start loading dataset: %s", dataset)
         config = get_dataset_config(dataset)
