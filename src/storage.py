@@ -48,3 +48,75 @@ def download_raw_files(raw_dir: Path) -> None:
         print(f"Downloaded: s3://{bucket}/{key} -> {destination}")
 
     print(f"PASS: Downloaded {len(RAW_FILES)} raw files")
+
+def upload_clean_file(clean_path: Path, run_id: str) -> str:
+    if not clean_path.is_file():
+        raise FileNotFoundError(f"Clean file not found: {clean_path}")
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ["S3_ENDPOINT_URL"],
+        aws_access_key_id=os.environ["S3_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["S3_SECRET_ACCESS_KEY"],
+        region_name=os.environ["S3_REGION"],
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+        ),
+    )
+
+    bucket = os.environ["S3_BUCKET"]
+    key = f"clean/{run_id}/{clean_path.name}"
+
+    s3.upload_file(str(clean_path), bucket, key)
+    print(f"Uploaded: {clean_path} -> s3://{bucket}/{key}")
+
+    return key
+
+def upload_reject_file(reject_path: Path, run_id: str) -> str:
+    if not reject_path.is_file():
+        raise FileNotFoundError(f"Clean file not found: {reject_path}")
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ["S3_ENDPOINT_URL"],
+        aws_access_key_id=os.environ["S3_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["S3_SECRET_ACCESS_KEY"],
+        region_name=os.environ["S3_REGION"],
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+        ),
+    )
+
+    bucket = os.environ["S3_BUCKET"]
+    key = f"rejected/{run_id}/{reject_path.name}"
+
+    s3.upload_file(str(reject_path), bucket, key)
+    print(f"Uploaded: {reject_path} -> s3://{bucket}/{key}")
+
+    return key
+
+def upload_valid_file(valid_path: Path, run_id: str) -> str:
+    if not valid_path.is_file():
+        raise FileNotFoundError(f"Clean file not found: {valid_path}")
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ["S3_ENDPOINT_URL"],
+        aws_access_key_id=os.environ["S3_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["S3_SECRET_ACCESS_KEY"],
+        region_name=os.environ["S3_REGION"],
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
+        ),
+    )
+
+    bucket = os.environ["S3_BUCKET"]
+    key = f"validate/{run_id}/{valid_path.name}"
+
+    s3.upload_file(str(valid_path), bucket, key)
+    print(f"Uploaded: {valid_path} -> s3://{bucket}/{key}")
+
+    return key

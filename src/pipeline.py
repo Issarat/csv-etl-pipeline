@@ -29,9 +29,9 @@ from src.transform import (
 )
 from src.load import create_table, upsert_dataframe, replace_geolocation, read_product_category_mapping,find_missing_reference_ids
 from src.quality import validate_customers
-from src.storage import download_raw_files
-# Dataset order follows foreign key depende
-# ncies.
+from src.storage import download_raw_files, upload_clean_file, upload_reject_file, upload_valid_file
+
+# Dataset order follows foreign key dependencies.
 TRANSFORMERS = {
     "orders": transform_orders,
     "order_items": transform_order_items,
@@ -52,6 +52,7 @@ PIPELINE_LOCK_PATH = (
 )
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_DIR = PROJECT_ROOT / "data" / "raw" 
+
 load_dotenv(PROJECT_ROOT / ".env")
 
 def _export_csv(df: pd.DataFrame, file_path: Path) -> None:
@@ -124,6 +125,7 @@ def _cleaning_dataset(dataset: str) -> pd.DataFrame:
             logger.info("Saved %s: %s", output_name, paths[output_name])
 
         logger.info("Completed cleaning pipeline: %s", dataset)
+
         return clean_df
     except Exception:
         logger.exception("Failed cleaning pipeline: %s", dataset)
@@ -224,6 +226,9 @@ def _run_pipeline() -> None:
         dataset_name="main",
         log_type="pipeline",
     )
+    run_id = uuid4().hex
+
+    #region inner function
     def load_with_status(dataset: str, df: pd.DataFrame) -> None:
         pipeline_logger.info(
             "run_id=%s dataset=%s status=LOAD_STARTED rows=%d",
@@ -243,8 +248,45 @@ def _run_pipeline() -> None:
             "run_id=%s dataset=%s status=LOAD_SUCCEEDED",
             run_id, dataset,
         )
+    
+    def upload_with_status(dataset: str) -> None:
+        paths = get_dataset_paths(dataset)
+        pipeline_logger.info(
+                "run_id=%s dataset=%s status=MinIO_STARTED_UPLOAD",
+                run_id, dataset,
+        )
+        try:
+            upload_clean_file(
+                clean_path=paths["clean"],
+                run_id=run_id,
+            )
+            pipeline_logger.info(
+                            "run_id=%s dataset=%s status=MinIO_STARTED_UPLOAD",
+                            run_id, dataset,
+                    )
+            upload_reject_file(
+                reject_path=paths["rejected"],
+                run_id=run_id,
+            )
+            if dataset in VALIDATE_LIST:
+                upload_valid_file(
+                    valid_path=paths["validated"],
+                    run_id=run_id
+                )
+        except Exception:
+                    pipeline_logger.error(
+                        "run_id=%s dataset=%s status=MinIO_LOAD_FAILED",
+                        run_id, dataset,
+                    )
+                    raise
+            
+        pipeline_logger.info(
+                "run_id=%s dataset=%s status=MinIO_LOAD_SUCCEEDED",
+                run_id, dataset,
+        )
+    #endregion
+    
     try:
-        run_id = uuid4().hex
         pipeline_logger.info("run_id=%s status=STARTED", run_id)
 
         # สร้างตารางจาก schma.sql
@@ -272,19 +314,23 @@ def _run_pipeline() -> None:
                 validated_df = validated_df.drop(columns=["product_category_name"])
             
             load_with_status(dataset, validated_df)
+            upload_with_status(dataset)
 
         # ต้องทำตามลำดับ Foreign Key
         order_items_df = None
         for dataset in DATA_LIST:
             clean_df = _cleaning_dataset(dataset)
+
             if dataset == "order_items":
                 order_items_df = clean_df
             else:
                 load_with_status(dataset, clean_df)
-  
+                upload_with_status(dataset)
+
         if order_items_df is not None: 
             load_with_status("order_items", order_items_df)
-        
+            upload_with_status("order_items")
+            
         pipeline_logger.info("run_id=%s status=SUCCEEDED", run_id)
     except Exception:
         pipeline_logger.exception("run_id=%s status=FAILED", run_id)
