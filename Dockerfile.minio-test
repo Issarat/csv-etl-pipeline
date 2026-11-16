@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir boto3 python-dotenv
+
+COPY scripts/test_minio.py scripts/test_minio.py
+
+CMD ["python", "-u", "scripts/test_minio.py"]

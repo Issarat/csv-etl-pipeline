@@ -1,0 +1,33 @@
+services:
+  minio:
+    build:
+      context: .
+      dockerfile: Dockerfile.minio
+    image: csv-etl-minio:local
+    command: server /data --console-address ":9001"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+  minio-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.minio-test
+    environment:
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET:-olist-pipeline}
+      S3_REGION: ${S3_REGION:-us-east-1}
+    volumes:
+      - ./data/minio_test:/app/data/minio_test
+      - ./data/raw:/app/data/raw:ro
+      - ./scripts/upload_raw.py:/app/scripts/upload_raw.py:ro
+
+volumes:
+  minio_data:
+

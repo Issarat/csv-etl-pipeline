@@ -11,6 +11,7 @@ with DAG(
     description="Run the existing Olist ETL image",
     start_date=pendulum.datetime(2026, 1, 1, tz="Asia/Bangkok"),
     schedule=None,
+    #schedule="*/5 * * * *", #	ทุก 5 นาที
     catchup=False,
     max_active_runs=1,
     default_args={"retries": 2, "retry_delay": timedelta(minutes=5)},

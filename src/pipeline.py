@@ -1,9 +1,12 @@
+import pandas as pd
+
 from pathlib import Path
 from typing import List, Tuple
-import pandas as pd
 from uuid import uuid4
 from filelock import FileLock, Timeout
 from decimal import Decimal
+from dotenv import load_dotenv
+
 from src.logger import get_logger
 from src.configuration import get_dataset_config, get_dataset_paths
 from src.extract import extract_csv
@@ -26,8 +29,9 @@ from src.transform import (
 )
 from src.load import create_table, upsert_dataframe, replace_geolocation, read_product_category_mapping,find_missing_reference_ids
 from src.quality import validate_customers
-
-# Dataset order follows foreign key dependencies.
+from src.storage import download_raw_files
+# Dataset order follows foreign key depende
+# ncies.
 TRANSFORMERS = {
     "orders": transform_orders,
     "order_items": transform_order_items,
@@ -46,6 +50,9 @@ CHECK_MISSING_DATA = ("orders","order_payments","order_reviews","order_items")
 PIPELINE_LOCK_PATH = (
     Path(__file__).resolve().parents[1] / "data" / ".pipeline.lock"
 )
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RAW_DIR = PROJECT_ROOT / "data" / "raw" 
+load_dotenv(PROJECT_ROOT / ".env")
 
 def _export_csv(df: pd.DataFrame, file_path: Path) -> None:
     file_path = Path(file_path)
@@ -295,6 +302,7 @@ def main() -> None:
         ) from exc
 
     try:
+        download_raw_files(RAW_DIR)
         _run_pipeline()
     finally:
         lock.release()
