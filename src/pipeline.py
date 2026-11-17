@@ -28,7 +28,7 @@ from src.transform import (
     transform_order_reviews,
 )
 from src.load import create_table, upsert_dataframe, replace_geolocation, read_product_category_mapping,find_missing_reference_ids
-from src.quality import validate_customers
+from src.quality import validate_customers, validate_sellers, validate_dataset
 from src.storage import download_raw_files, upload_clean_file, upload_reject_file, upload_valid_file
 
 # Dataset order follows foreign key dependencies.
@@ -154,6 +154,10 @@ def _load_dataset(dataset: str, clean_df: pd.DataFrame) -> None:
     logger = get_logger(dataset_name=dataset, log_type="pipeline")
     if dataset == "customers":
         validate_customers(clean_df)
+    elif dataset == "sellers":
+        validate_sellers(clean_df)
+    else:
+        validate_dataset(dataset, clean_df)
     try:
         logger.info("Start loading dataset: %s", dataset)
         config = get_dataset_config(dataset)
