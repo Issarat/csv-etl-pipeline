@@ -47,11 +47,11 @@ docker compose exec postgres psql -U etl_user -d olist -c "SELECT count(*) FROM 
 
 Look for `status=SUCCEEDED` for the latest run ID. Repeat the pipeline command above again with unchanged inputs and compare table counts to check for duplicate growth. Equal counts alone do not verify all stored values.
 
-| Storage | Purpose |
-| --- | --- |
+| Storage            | Purpose                                                                          |
+| ------------------ | -------------------------------------------------------------------------------- |
 | `./data:/app/data` | Source CSVs, generated outputs, geolocation mapping state, and the pipeline lock |
-| `./logs:/app/logs` | Logs retained on the host after the pipeline container exits |
-| `postgres_data` | PostgreSQL data retained when containers are recreated |
+| `./logs:/app/logs` | Logs retained on the host after the pipeline container exits                     |
+| `postgres_data`    | PostgreSQL data retained when containers are recreated                           |
 
 Inside Docker, the pipeline connects to `postgres:5432`. Applications running on the host connect to `localhost:5433`. The bundled credentials in `compose.yaml` are for local development.
 
@@ -62,7 +62,6 @@ docker compose down
 ```
 
 To check persistence, run `docker compose up -d --wait postgres` again and repeat the count query before rerunning the pipeline. Do not add `-v` to `docker compose down` unless you intend to delete the database volume.
-
 
 Stop MinIO while retaining its object storage volume:
 
@@ -90,11 +89,11 @@ Before customers are written to PostgreSQL, Great Expectations validates the cle
 
 After each successful dataset load, the pipeline uploads its output files using the same run ID:
 
-| Bucket prefix | Contents |
-| --- | --- |
-| `raw/` | Source CSVs seeded with `scripts/upload_raw.py` |
-| `clean/<run_id>/` | Clean CSVs for each dataset |
-| `rejected/<run_id>/` | Rejected CSVs with reasons |
+| Bucket prefix        | Contents                                             |
+| -------------------- | ---------------------------------------------------- |
+| `raw/`               | Source CSVs seeded with `scripts/upload_raw.py`      |
+| `clean/<run_id>/`    | Clean CSVs for each dataset                          |
+| `rejected/<run_id>/` | Rejected CSVs with reasons                           |
 | `validate/<run_id>/` | Validated categories, products, and geolocation CSVs |
 
 Database commits and object uploads are separate operations. An upload failure stops the run but does not undo an already committed table. A failed run can leave partial output prefixes; inspect the final pipeline status before treating a run as complete.
@@ -105,17 +104,17 @@ Each dataset is extracted from `data/raw/`, cleaned, and split into clean and re
 
 The table lists the load order. Categories, products, and geolocation also produce validated CSVs under `data/validate/`.
 
-| Dataset | Load strategy |
-| --- | --- |
-| `product_categories` | Upsert by `product_category_name`. PostgreSQL assigns IDs to new categories. |
-| `products` | Upsert by `product_id`. Resolve canonical category names to existing PostgreSQL IDs. |
-| `geolocation` | Replace the entire snapshot in one transaction. |
-| `customers` | Upsert by `customer_id`. |
-| `sellers` | Upsert by `seller_id`. |
-| `orders` | Upsert by `order_id`. |
-| `order_payments` | Upsert by `order_id` and `payment_sequential`. Derive a deterministic UUID from that pair. |
-| `order_reviews` | Upsert by `order_review_id` and `order_id`. |
-| `order_items` | Upsert by `order_id` and `order_item_id` after orders, products, and sellers load. |
+| Dataset              | Load strategy                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `product_categories` | Upsert by `product_category_name`. PostgreSQL assigns IDs to new categories.               |
+| `products`           | Upsert by `product_id`. Resolve canonical category names to existing PostgreSQL IDs.       |
+| `geolocation`        | Replace the entire snapshot in one transaction.                                            |
+| `customers`          | Upsert by `customer_id`.                                                                   |
+| `sellers`            | Upsert by `seller_id`.                                                                     |
+| `orders`             | Upsert by `order_id`.                                                                      |
+| `order_payments`     | Upsert by `order_id` and `payment_sequential`. Derive a deterministic UUID from that pair. |
+| `order_reviews`      | Upsert by `order_review_id` and `order_id`.                                                |
+| `order_items`        | Upsert by `order_id` and `order_item_id` after orders, products, and sellers load.         |
 
 Before loading orders, payments, reviews, or items, the pipeline checks that their parent IDs exist in PostgreSQL. Missing references stop the run and the error includes sample IDs.
 
@@ -130,28 +129,26 @@ Before loading orders, payments, reviews, or items, the pipeline checks that the
 
 ## Project layout
 
-| Path | Purpose |
-| --- | --- |
-| `src/pipeline.py` | ETL entry point, run lock, and load orchestration |
-| `src/configuration.py` | Dataset rules and CSV paths |
-| `src/extract.py`, `src/transform.py`, `src/validate.py` | Extraction, cleaning, and mapping |
-| `src/quality.py` | Great Expectations customer quality gate |
-| `src/storage.py` | MinIO raw downloads and output uploads |
-| `scripts/test_minio.py`, `scripts/upload_raw.py` | Bucket connectivity check and raw-file seeding |
-| `compose.minio.yml`, `Dockerfile.minio`, `Dockerfile.minio-test` | Local MinIO and storage helper containers |
-| `src/load.py`, `sql/schema.sql` | PostgreSQL writes and schema |
-| `data/raw/` | Source CSVs, named `olist_<dataset>_dataset.csv` except `product_categories.csv` |
-| `data/clean/`, `data/rejected/`, `data/validate/` | Clean, rejected, and validated outputs |
-| `dags/olist_etl.py` | Airflow DAG that launches the ETL container |
-| `docker/airflow/Dockerfile` | Airflow image and Docker provider dependencies |
-| `compose.yaml`, `docs/airflow.md` | Local services and Airflow setup instructions |
-| `tests/`, `.github/workflows/ci.yml` | Unit and PostgreSQL integration tests |
+| Path                                                             | Purpose                                                                          |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `src/pipeline.py`                                                | ETL entry point, run lock, and load orchestration                                |
+| `src/configuration.py`                                           | Dataset rules and CSV paths                                                      |
+| `src/extract.py`, `src/transform.py`, `src/validate.py`          | Extraction, cleaning, and mapping                                                |
+| `src/quality.py`                                                 | Great Expectations customer quality gate                                         |
+| `src/storage.py`                                                 | MinIO raw downloads and output uploads                                           |
+| `scripts/test_minio.py`, `scripts/upload_raw.py`                 | Bucket connectivity check and raw-file seeding                                   |
+| `compose.minio.yml`, `Dockerfile.minio`, `Dockerfile.minio-test` | Local MinIO and storage helper containers                                        |
+| `src/load.py`, `sql/schema.sql`                                  | PostgreSQL writes and schema                                                     |
+| `data/raw/`                                                      | Source CSVs, named `olist_<dataset>_dataset.csv` except `product_categories.csv` |
+| `data/clean/`, `data/rejected/`, `data/validate/`                | Clean, rejected, and validated outputs                                           |
+| `dags/olist_etl.py`                                              | Airflow DAG that launches the ETL container                                      |
+| `docker/airflow/Dockerfile`                                      | Airflow image and Docker provider dependencies                                   |
+| `compose.yaml`, `docs/airflow.md`                                | Local services and Airflow setup instructions                                    |
+| `tests/`, `.github/workflows/ci.yml`                             | Unit and PostgreSQL integration tests                                            |
 
 See the [ER diagram](docs/er-diagram.md) for relationships.
 
 ## Next goals
 
-- Pass S3 configuration into the Airflow ETL container and verify an end-to-end run.
-- Extend Great Expectations coverage beyond customers.
 - Add a Spark transformation exercise and compare its results with Pandas.
 - Add a read-only FastAPI service serving loaded PostgreSQL data, with ETL kept as a separate command.
