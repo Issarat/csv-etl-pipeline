@@ -24,7 +24,14 @@ with DAG(
         docker_url="unix://var/run/docker.sock",
         api_version="auto",
         network_mode="csv-etl-network",
-        environment={"DATABASE_URL": "{{ var.value.etl_database_url }}"},
+        environment={
+            "DATABASE_URL": "{{ var.value.etl_database_url }}",
+            "S3_ENDPOINT_URL": "{{ var.value.etl_s3_endpoint_url }}",
+            "S3_ACCESS_KEY_ID": "{{ var.value.etl_s3_access_key_id }}",
+            "S3_SECRET_ACCESS_KEY": "{{ var.value.etl_s3_secret_access_key }}",
+            "S3_BUCKET": "{{ var.value.etl_s3_bucket }}",
+            "S3_REGION": "{{ var.value.etl_s3_region }}",
+        },
         mounts=[
             Mount(source="{{ var.value.etl_host_project_dir }}/data", target="/app/data", type="bind"),
             Mount(source="{{ var.value.etl_host_project_dir }}/logs", target="/app/logs", type="bind"),
