@@ -7,7 +7,7 @@ The Docker quick start below uses Docker Desktop and PowerShell. See the [setup 
 ## Pipeline flow
 
 ```mermaid
-flowchart LR
+flowchart TD
     A["Read CSV using Pandas"] --> B["Transform and validate each row"]
     B --> C["Split into clean and rejected records with reasons"]
     C --> D["Verify row counts and rejection_reason"]
