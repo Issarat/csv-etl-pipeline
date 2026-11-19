@@ -4,6 +4,27 @@ A Docker-based ETL workflow that downloads nine Olist CSV datasets from MinIO, v
 
 The Docker quick start below uses Docker Desktop and PowerShell. See the [setup guide](docs/setup.md) for local Python, Airflow, tests, and troubleshooting.
 
+## Pipeline flow
+
+```mermaid
+flowchart TD
+    A["Read CSV using Pandas"] --> B["Transform and validate each row"]
+    B --> C["Split into clean and rejected records with reasons"]
+    C --> D["Verify row counts and rejection_reason"]
+    D --> E["Save clean and rejected CSV files locally"]
+    E --> F["Prepare validated data and mappings if needed"]
+    F --> G{"Great Expectations checks passed?"}
+
+    G -->|No| H["Raise an error and stop the pipeline"]
+    G -->|Yes| I["Check foreign keys for orders, payments, reviews, and items"]
+    I --> J{"All referenced records exist?"}
+    J -->|No| H
+    J -->|Yes| K["Load into PostgreSQL"]
+    K --> L["Upsert by key or replace geolocation data"]
+    L --> M["Upload files to MinIO under run_id"]
+    M --> N["Process the next dataset"]
+```
+
 ## Docker quick start
 
 ### 1. Prepare MinIO and source data
